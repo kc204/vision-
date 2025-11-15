@@ -122,6 +122,12 @@ export default function ImagePromptBuilderPage() {
 
   function resetConversation() {
     setStage("seed");
+    setVisionSeedText("");
+    setModelChoice("sdxl");
+    setCameraAngleId("");
+    setShotSizeId("");
+    setLightingStyleId("");
+    setColorPaletteId("");
     setSummary("");
     setSummaryFeedback("");
     setMoodMemory("");
@@ -138,11 +144,17 @@ export default function ImagePromptBuilderPage() {
       body: JSON.stringify(payload),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new Error("Request failed");
+      const errorMessage =
+        (typeof data?.error === "string" && data.error.trim().length > 0
+          ? data.error
+          : "Request failed");
+      throw new Error(errorMessage);
     }
 
-    return (await response.json()) as ApiResponse;
+    return data as ApiResponse;
   }
 
   async function handleSeedSubmit(event: FormEvent<HTMLFormElement>) {
@@ -176,9 +188,15 @@ export default function ImagePromptBuilderPage() {
       setResult(null);
     } catch (requestError) {
       console.error(requestError);
-      setError(
-        "Something went wrong while drafting your summary. Please try again."
-      );
+      const fallback =
+        "Something went wrong while drafting your summary. Please try again.";
+      const message =
+        requestError instanceof Error &&
+        requestError.message &&
+        requestError.message !== "Request failed"
+          ? requestError.message
+          : fallback;
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -203,7 +221,14 @@ export default function ImagePromptBuilderPage() {
       setSummaryFeedback("");
     } catch (requestError) {
       console.error(requestError);
-      setError("We couldn’t confirm the summary. Please try again.");
+      const fallback = "We couldn’t confirm the summary. Please try again.";
+      const message =
+        requestError instanceof Error &&
+        requestError.message &&
+        requestError.message !== "Request failed"
+          ? requestError.message
+          : fallback;
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -233,7 +258,14 @@ export default function ImagePromptBuilderPage() {
       setSummaryFeedback("");
     } catch (requestError) {
       console.error(requestError);
-      setError("We couldn’t revise the summary. Please try again.");
+      const fallback = "We couldn’t revise the summary. Please try again.";
+      const message =
+        requestError instanceof Error &&
+        requestError.message &&
+        requestError.message !== "Request failed"
+          ? requestError.message
+          : fallback;
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -290,9 +322,15 @@ export default function ImagePromptBuilderPage() {
       setStage("result");
     } catch (requestError) {
       console.error(requestError);
-      setError(
-        "Something went wrong generating your image prompt. Please try again."
-      );
+      const fallback =
+        "Something went wrong generating your image prompt. Please try again.";
+      const message =
+        requestError instanceof Error &&
+        requestError.message &&
+        requestError.message !== "Request failed"
+          ? requestError.message
+          : fallback;
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -519,6 +557,7 @@ export default function ImagePromptBuilderPage() {
                 type="button"
                 onClick={() => {
                   setStage("refine");
+                  setError(null);
                 }}
                 className="flex-1 rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30"
               >
