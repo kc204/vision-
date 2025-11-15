@@ -13,7 +13,8 @@ import { DirectorRequest } from "./directorTypes";
  * Until that work is completed we throw so callers know the backend still needs
  * to be connected to the new service layer.
  */
-export async function callDirectorCore(_request: DirectorRequest): Promise<{ text: string }> {
+export async function callDirectorCore(_request: DirectorRequest): Promise<string> {
   void DIRECTOR_CORE_SYSTEM_PROMPT;
+  // TODO: Integrate Gemini client and return the generated text response.
   throw new Error("Director Core integration not yet implemented");
 }

@@ -1,5 +1,6 @@
-export type ImagePromptDirectorRequest = {
-  type: "image_prompt";
+export type DirectorMode = "image_prompt" | "loop_sequence" | "video_plan";
+
+export type ImagePromptPayload = {
   visionSeedText: string;
   modelChoice: "sdxl" | "flux" | "illustrious";
   cameraAngleId?: string;
@@ -9,6 +10,11 @@ export type ImagePromptDirectorRequest = {
   colorPaletteId?: string;
   motionCueIds?: string[];
   stylePackIds?: string[];
+};
+
+export type ImagePromptDirectorRequest = {
+  mode: "image_prompt";
+  payload: ImagePromptPayload;
 };
 
 export type AspectRatio = "16:9" | "9:16";
@@ -25,8 +31,7 @@ export type SceneAnswer = {
   answer: string;
 };
 
-export type LoopSequenceDirectorRequest = {
-  type: "loop_sequence";
+export type LoopSequencePayload = {
   loopSeedText: string;
   durationSeconds?: number;
   aspectRatio?: AspectRatio | "1:1";
@@ -34,8 +39,12 @@ export type LoopSequenceDirectorRequest = {
   references?: string[];
 };
 
-export type VideoPlanDirectorRequest = {
-  type: "video_plan";
+export type LoopSequenceDirectorRequest = {
+  mode: "loop_sequence";
+  payload: LoopSequencePayload;
+};
+
+export type VideoPlanPayload = {
   visionSeed: {
     scriptText: string;
     tone: string;
@@ -47,6 +56,11 @@ export type VideoPlanDirectorRequest = {
   sceneAnswers?: SceneAnswer[];
   directRender?: boolean;
   finalPlanOverride?: unknown;
+};
+
+export type VideoPlanDirectorRequest = {
+  mode: "video_plan";
+  payload: VideoPlanPayload;
 };
 
 export type DirectorRequest =

@@ -1,210 +1,356 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 
-type ContinuityLock = {
-  subject_identity: string;
-  lighting_and_palette: string;
-  camera_grammar: string;
-  environment_motif: string;
-};
+import { callDirectorCore } from "@/lib/directorClient";
+import {
+  AspectRatio,
+  DirectorRequest,
+  ImagePromptDirectorRequest,
+  LoopSequenceDirectorRequest,
+  SceneAnswer,
+  SceneDraft,
+  VideoPlanDirectorRequest,
+} from "@/lib/directorTypes";
 
-type LoopKeyframe = {
-  frame: number;
-  description: string;
-  camera?: string;
-  motion?: string;
-  lighting?: string;
-};
+class DirectorValidationError extends Error {}
 
-type LoopCycleJSON = {
-  cycle_id: string;
-  title?: string;
-  beat_summary?: string;
-  prompt: string;
-  start_frame: number;
-  loop_length: number;
-  continuity_lock: ContinuityLock;
-  keyframes?: LoopKeyframe[];
-  mood_profile?: string;
-};
+type UnknownRecord = Record<string, unknown>;
 
-type LoopDirectorRequest = {
-  mode: "loop_sequence";
-  visionSeed: string;
-  startFrame?: number;
-  loopLength?: number;
-  includeMoodProfile?: boolean;
-  referenceImage?: string | null;
-};
+const VALID_IMAGE_MODELS = new Set([
+  "sdxl",
+  "flux",
+  "illustrious",
+]);
 
-type DirectorErrorResponse = {
-  error: string;
-};
+const VALID_ASPECT_RATIOS: ReadonlySet<AspectRatio | "1:1"> = new Set([
+  "16:9",
+  "9:16",
+  "1:1",
+]);
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const VALID_VIDEO_PLAN_ASPECT_RATIOS: ReadonlySet<AspectRatio> = new Set([
+  "16:9",
+  "9:16",
+]);
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("Missing OPENAI_API_KEY env variable");
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "OpenAI API key not configured" },
-        { status: 500 }
-      );
-    }
+    const body = await request.json();
+    const directorRequest = parseDirectorRequest(body);
 
-    const body = (await request.json()) as Partial<LoopDirectorRequest>;
+    const text = await callDirectorCore(directorRequest);
 
-    if (body.mode !== "loop_sequence") {
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "Unsupported director mode" },
-        { status: 400 }
-      );
-    }
-
-    if (!body.visionSeed || !body.visionSeed.trim()) {
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "visionSeed is required" },
-        { status: 400 }
-      );
-    }
-
-    const startFrame = Number.isFinite(body.startFrame)
-      ? Number(body.startFrame)
-      : 0;
-    const loopLength = Number.isFinite(body.loopLength)
-      ? Math.max(1, Number(body.loopLength))
-      : 48;
-
-    const includeMoodProfile = Boolean(body.includeMoodProfile);
-
-    const referenceHint = body.referenceImage
-      ? "The user also supplied a base64-encoded reference image. Use it to inform continuity notes and tone, but do not echo the raw string."
-      : "No reference image was provided.";
-
-    const moodProfileDirective = includeMoodProfile
-      ? "If helpful, summarize a short mood profile that can be reused when refining the loop later."
-      : "Do not invent a mood profile section unless the loop inherently requires it.";
-
-    const systemPrompt = `You are Loop Sequence Director — an animation planning assistant for short seamless loops. You translate casual language into production-ready JSON instructions. Always respond with JSON only.`;
-
-    const userPrompt = `MODE: loop_sequence
-VISION SEED:
-${body.visionSeed.trim()}
-
-START FRAME: ${startFrame}
-LOOP LENGTH: ${loopLength} frames
-${referenceHint}
-${moodProfileDirective}
-
-Design 2-4 cohesive loop cycles that explore the idea while keeping the loop seamless.
-Each cycle should:
-- Provide a descriptive prompt capturing the visual moment.
-- Lock key continuity details (subjects, lighting/palette, camera grammar, environment motif).
-- Outline 3-5 keyframes describing how motion evolves between the start frame and the loop reset.
-- Mention whether a mood profile should be remembered when includeMoodProfile is true.
-
-Return a JSON array of cycles using this schema:
-[
-  {
-    "cycle_id": "loop-cycle-1",
-    "title": "Optional short title",
-    "beat_summary": "One-sentence summary of the loop",
-    "prompt": "Primary generation prompt",
-    "start_frame": ${startFrame},
-    "loop_length": ${loopLength},
-    "continuity_lock": {
-      "subject_identity": "...",
-      "lighting_and_palette": "...",
-      "camera_grammar": "...",
-      "environment_motif": "..."
-    },
-    "keyframes": [
-      {
-        "frame": ${startFrame},
-        "description": "Describe the visual moment",
-        "camera": "Optional camera note",
-        "motion": "Optional motion note",
-        "lighting": "Optional lighting note"
-      }
-    ],
-    "mood_profile": "Only when includeMoodProfile is true"
-  }
-]`;
-
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    });
-
-    const content = completion.choices[0]?.message?.content;
-
-    if (!content) {
-      console.error("OpenAI returned no content for loop sequence");
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "Failed to generate loop sequence" },
-        { status: 500 }
-      );
-    }
-
-    const parsed = tryParseLoopCycles(content);
-
-    if (!parsed) {
-      console.error("Failed to parse loop sequence response", content);
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "Failed to generate loop sequence" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(parsed);
+    return NextResponse.json({ text });
   } catch (error) {
+    if (error instanceof DirectorValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     console.error("Unhandled director error", error);
-    return NextResponse.json<DirectorErrorResponse>(
-      { error: "Failed to generate loop sequence" },
+    return NextResponse.json(
+      { error: "Failed to call Director Core" },
       { status: 500 }
     );
   }
 }
 
-function tryParseLoopCycles(content: string): LoopCycleJSON[] | null {
-  const sanitized = content.trim();
-
-  const jsonCandidates: string[] = [];
-  if (sanitized.startsWith("{")) {
-    jsonCandidates.push(sanitized);
+function parseDirectorRequest(body: unknown): DirectorRequest {
+  if (!isRecord(body)) {
+    throw new DirectorValidationError("Request body must be a JSON object");
   }
 
-  const fencedMatch = sanitized.match(/```json([\s\S]*?)```/i);
-  if (fencedMatch) {
-    jsonCandidates.push(fencedMatch[1].trim());
+  const { mode, payload } = body;
+
+  if (typeof mode !== "string") {
+    throw new DirectorValidationError("mode is required");
   }
 
-  const arrayMatch = sanitized.match(/\[[\s\S]*\]/);
-  if (arrayMatch) {
-    jsonCandidates.push(arrayMatch[0]);
+  if (!isRecord(payload)) {
+    throw new DirectorValidationError("payload must be an object");
   }
 
-  for (const candidate of jsonCandidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (Array.isArray(parsed)) {
-        return parsed as LoopCycleJSON[];
-      }
-      if (Array.isArray((parsed as { cycles?: unknown }).cycles)) {
-        return (parsed as { cycles: LoopCycleJSON[] }).cycles;
-      }
-    } catch (error) {
-      console.warn("Failed to parse candidate", error);
+  switch (mode) {
+    case "image_prompt":
+      return {
+        mode,
+        payload: parseImagePromptPayload(payload),
+      } satisfies ImagePromptDirectorRequest;
+    case "loop_sequence":
+      return {
+        mode,
+        payload: parseLoopSequencePayload(payload),
+      } satisfies LoopSequenceDirectorRequest;
+    case "video_plan":
+      return {
+        mode,
+        payload: parseVideoPlanPayload(payload),
+      } satisfies VideoPlanDirectorRequest;
+    default:
+      throw new DirectorValidationError(`Unsupported director mode: ${mode}`);
+  }
+}
+
+function parseImagePromptPayload(payload: UnknownRecord): ImagePromptDirectorRequest["payload"] {
+  const { visionSeedText, modelChoice } = payload;
+
+  if (!isNonEmptyString(visionSeedText)) {
+    throw new DirectorValidationError("visionSeedText is required");
+  }
+
+  if (typeof modelChoice !== "string" || !VALID_IMAGE_MODELS.has(modelChoice)) {
+    throw new DirectorValidationError(
+      "modelChoice must be one of: sdxl, flux, illustrious"
+    );
+  }
+
+  const result: ImagePromptDirectorRequest["payload"] = {
+    visionSeedText: visionSeedText.trim(),
+    modelChoice,
+  };
+
+  if (payload.cameraAngleId !== undefined) {
+    result.cameraAngleId = parseOptionalString(payload.cameraAngleId, "cameraAngleId");
+  }
+
+  if (payload.shotSizeId !== undefined) {
+    result.shotSizeId = parseOptionalString(payload.shotSizeId, "shotSizeId");
+  }
+
+  if (payload.compositionTechniqueId !== undefined) {
+    result.compositionTechniqueId = parseOptionalString(
+      payload.compositionTechniqueId,
+      "compositionTechniqueId"
+    );
+  }
+
+  if (payload.lightingVocabularyId !== undefined) {
+    result.lightingVocabularyId = parseOptionalString(
+      payload.lightingVocabularyId,
+      "lightingVocabularyId"
+    );
+  }
+
+  if (payload.colorPaletteId !== undefined) {
+    result.colorPaletteId = parseOptionalString(
+      payload.colorPaletteId,
+      "colorPaletteId"
+    );
+  }
+
+  if (payload.motionCueIds !== undefined) {
+    result.motionCueIds = parseStringArray(payload.motionCueIds, "motionCueIds");
+  }
+
+  if (payload.stylePackIds !== undefined) {
+    result.stylePackIds = parseStringArray(payload.stylePackIds, "stylePackIds");
+  }
+
+  return result;
+}
+
+function parseLoopSequencePayload(payload: UnknownRecord): LoopSequenceDirectorRequest["payload"] {
+  const { loopSeedText } = payload;
+
+  if (!isNonEmptyString(loopSeedText)) {
+    throw new DirectorValidationError("loopSeedText is required");
+  }
+
+  const result: LoopSequenceDirectorRequest["payload"] = {
+    loopSeedText: loopSeedText.trim(),
+  };
+
+  if (payload.durationSeconds !== undefined) {
+    if (!isFiniteNumber(payload.durationSeconds)) {
+      throw new DirectorValidationError("durationSeconds must be a number");
     }
+    result.durationSeconds = Number(payload.durationSeconds);
   }
 
-  return null;
+  if (payload.aspectRatio !== undefined) {
+    if (
+      typeof payload.aspectRatio !== "string" ||
+      !VALID_ASPECT_RATIOS.has(payload.aspectRatio as AspectRatio | "1:1")
+    ) {
+      throw new DirectorValidationError("aspectRatio is invalid");
+    }
+    result.aspectRatio = payload.aspectRatio as LoopSequenceDirectorRequest["payload"]["aspectRatio"];
+  }
+
+  if (payload.vibe !== undefined) {
+    result.vibe = parseOptionalString(payload.vibe, "vibe");
+  }
+
+  if (payload.references !== undefined) {
+    result.references = parseStringArray(payload.references, "references");
+  }
+
+  return result;
+}
+
+function parseVideoPlanPayload(payload: UnknownRecord): VideoPlanDirectorRequest["payload"] {
+  const { visionSeed } = payload;
+
+  if (!isRecord(visionSeed)) {
+    throw new DirectorValidationError("visionSeed is required");
+  }
+
+  const { scriptText, tone, palette, references, aspectRatio } = visionSeed;
+
+  if (!isNonEmptyString(scriptText)) {
+    throw new DirectorValidationError("visionSeed.scriptText is required");
+  }
+  if (!isNonEmptyString(tone)) {
+    throw new DirectorValidationError("visionSeed.tone is required");
+  }
+  if (!isNonEmptyString(palette)) {
+    throw new DirectorValidationError("visionSeed.palette is required");
+  }
+  if (!Array.isArray(references) || !references.every(isString)) {
+    throw new DirectorValidationError("visionSeed.references must be an array of strings");
+  }
+  if (
+    typeof aspectRatio !== "string" ||
+    !VALID_VIDEO_PLAN_ASPECT_RATIOS.has(aspectRatio as AspectRatio)
+  ) {
+    throw new DirectorValidationError("visionSeed.aspectRatio is invalid");
+  }
+
+  const result: VideoPlanDirectorRequest["payload"] = {
+    visionSeed: {
+      scriptText: scriptText.trim(),
+      tone: tone.trim(),
+      palette: palette.trim(),
+      references: references.map((reference) => reference.trim()),
+      aspectRatio: aspectRatio as AspectRatio,
+    },
+  };
+
+  if (payload.segmentation !== undefined) {
+    result.segmentation = parseSceneDraftArray(payload.segmentation);
+  }
+
+  if (payload.sceneAnswers !== undefined) {
+    result.sceneAnswers = parseSceneAnswerArray(payload.sceneAnswers);
+  }
+
+  if (payload.directRender !== undefined) {
+    if (typeof payload.directRender !== "boolean") {
+      throw new DirectorValidationError("directRender must be a boolean");
+    }
+    result.directRender = payload.directRender;
+  }
+
+  if (payload.finalPlanOverride !== undefined) {
+    result.finalPlanOverride = payload.finalPlanOverride;
+  }
+
+  return result;
+}
+
+function parseSceneDraftArray(value: unknown): SceneDraft[] {
+  if (!Array.isArray(value)) {
+    throw new DirectorValidationError("segmentation must be an array");
+  }
+
+  return value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new DirectorValidationError(
+        `segmentation[${index}] must be an object`
+      );
+    }
+
+    const { id, title, summary, question } = item;
+
+    if (!isNonEmptyString(id)) {
+      throw new DirectorValidationError(
+        `segmentation[${index}].id is required`
+      );
+    }
+    if (!isNonEmptyString(title)) {
+      throw new DirectorValidationError(
+        `segmentation[${index}].title is required`
+      );
+    }
+    if (!isNonEmptyString(summary)) {
+      throw new DirectorValidationError(
+        `segmentation[${index}].summary is required`
+      );
+    }
+    if (!isNonEmptyString(question)) {
+      throw new DirectorValidationError(
+        `segmentation[${index}].question is required`
+      );
+    }
+
+    return {
+      id: id.trim(),
+      title: title.trim(),
+      summary: summary.trim(),
+      question: question.trim(),
+    } satisfies SceneDraft;
+  });
+}
+
+function parseSceneAnswerArray(value: unknown): SceneAnswer[] {
+  if (!Array.isArray(value)) {
+    throw new DirectorValidationError("sceneAnswers must be an array");
+  }
+
+  return value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}] must be an object`
+      );
+    }
+
+    const { sceneId, answer } = item;
+
+    if (!isNonEmptyString(sceneId)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}].sceneId is required`
+      );
+    }
+
+    if (!isNonEmptyString(answer)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}].answer is required`
+      );
+    }
+
+    return {
+      sceneId: sceneId.trim(),
+      answer: answer.trim(),
+    } satisfies SceneAnswer;
+  });
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
+
+function parseOptionalString(value: unknown, field: string): string {
+  if (!isString(value)) {
+    throw new DirectorValidationError(`${field} must be a string`);
+  }
+
+  return value.trim();
+}
+
+function parseStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || !value.every(isString)) {
+    throw new DirectorValidationError(`${field} must be an array of strings`);
+  }
+
+  return value.map((entry) => entry.trim());
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
