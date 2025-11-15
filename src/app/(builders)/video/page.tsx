@@ -494,23 +494,23 @@ export default function VideoBuilderPage() {
         />
 
         <div className="space-y-2">
-          <label
-            htmlFor="video-provider-api-key"
-            className="text-sm font-semibold text-slate-200"
-          >
-            Provider API key
+          <label className="block space-y-1" htmlFor="video-provider-api-key">
+            <span className="text-sm font-semibold text-slate-200">
+              Provider API key (optional)
+            </span>
+            <input
+              id="video-provider-api-key"
+              type="password"
+              value={providerApiKey}
+              onChange={(event) => setProviderApiKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Gemini, OpenAI, etc."
+              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
           </label>
-          <input
-            id="video-provider-api-key"
-            type="password"
-            value={providerApiKey}
-            onChange={(event) => setProviderApiKey(event.target.value)}
-            placeholder="Enter your Gemini API key"
-            autoComplete="off"
-            className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-          />
           <p className="text-xs text-slate-400">
-            Keys stay in this browser session and are sent with each request via a secure header.
+            Stored only in this session and forwarded with your generation request.
           </p>
         </div>
 

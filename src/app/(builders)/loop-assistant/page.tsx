@@ -187,11 +187,11 @@ export default function LoopAssistantPage() {
       ]);
     } catch (submissionError) {
       console.error(submissionError);
-        if (submissionError instanceof Error) {
-          setError(submissionError.message);
-        } else {
-          setError("Loop assistant request failed");
-        }
+      if (submissionError instanceof Error) {
+        setError(submissionError.message);
+      } else {
+        setError("Loop assistant request failed");
+      }
     } finally {
       setIsRequesting(false);
     }
@@ -254,23 +254,23 @@ export default function LoopAssistantPage() {
           />
 
           <div className="space-y-2">
-            <label
-              htmlFor="loop-provider-api-key"
-              className="text-sm font-semibold text-slate-200"
-            >
-              Provider API key
+            <label className="block space-y-1" htmlFor="loop-provider-api-key">
+              <span className="text-sm font-semibold text-slate-200">
+                Provider API key (optional)
+              </span>
+              <input
+                id="loop-provider-api-key"
+                type="password"
+                value={providerApiKey}
+                onChange={(event) => setProviderApiKey(event.target.value)}
+                placeholder="Gemini, OpenAI, etc."
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              />
             </label>
-            <input
-              id="loop-provider-api-key"
-              type="password"
-              value={providerApiKey}
-              onChange={(event) => setProviderApiKey(event.target.value)}
-              placeholder="Enter your Gemini API key"
-              autoComplete="off"
-              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            />
             <p className="text-xs text-slate-400">
-              Keys stay in this browser session and are sent with each request via a secure header.
+              Stored only in this session and forwarded with your generation request.
             </p>
           </div>
 

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callGeminiChat, GeminiChatMessage } from "@/lib/geminiClient";
 
 type ValidationResult =
@@ -36,15 +35,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const headerApiKey = request.headers
-    .get("x-provider-api-key")
-    ?.trim();
+  const headerApiKey = getNonEmptyString(
+    request.headers.get("x-provider-api-key") ?? undefined
+  );
+  const bodyApiKey = getNonEmptyString(bodyRecord.apiKey);
+  const apiKey = headerApiKey ?? bodyApiKey;
 
-  const session = await auth();
-  const result = await callGeminiChat(systemPrompt, validation.value, {
-    googleAccessToken: session?.providerTokens?.google?.accessToken,
-    apiKey: headerApiKey && headerApiKey.length > 0 ? headerApiKey : undefined,
-  });
+  const result = await callGeminiChat(
+    systemPrompt,
+    validation.value,
+    apiKey ? { apiKey } : undefined
+  );
   if (!result.success) {
     const { status, error, details } = result;
     const responseBody: Record<string, unknown> = { error };
@@ -86,4 +87,13 @@ function parseMessages(value: unknown): ValidationResult {
   }
 
   return { ok: true, value: messages };
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

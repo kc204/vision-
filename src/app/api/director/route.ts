@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
   DirectorRequest,
@@ -16,8 +15,12 @@ type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
 
-const REQUIRE_AUTHENTICATED_SESSION = parseEnvBoolean(
-  process.env.DIRECTOR_CORE_REQUIRE_API_KEY ?? "true"
+const DIRECTOR_API_KEY_HEADER = "x-provider-api-key";
+const REQUIRE_DIRECTOR_API_KEY = parseEnvBoolean(
+  process.env.DIRECTOR_CORE_REQUIRE_API_KEY
+);
+const FALLBACK_DIRECTOR_API_KEY = getNonEmptyString(
+  process.env.DIRECTOR_CORE_API_KEY
 );
 
 export async function POST(request: Request) {
@@ -32,7 +35,30 @@ export async function POST(request: Request) {
     );
   }
 
-  const validation = validateDirectorRequest(body);
+  const bodyRecord = isRecord(body) ? (body as UnknownRecord) : null;
+  const apiKeyFromBody = bodyRecord ? getNonEmptyString(bodyRecord.apiKey) : undefined;
+  const apiKeyFromHeaders = getNonEmptyString(
+    request.headers.get(DIRECTOR_API_KEY_HEADER)
+  );
+  const providedApiKey =
+    apiKeyFromHeaders ?? apiKeyFromBody ?? FALLBACK_DIRECTOR_API_KEY;
+
+  if (REQUIRE_DIRECTOR_API_KEY && !providedApiKey) {
+    return NextResponse.json(
+      { error: "An API key is required to call Director Core." },
+      { status: 401 }
+    );
+  }
+
+  let payloadForValidation: unknown = body;
+
+  if (bodyRecord && "apiKey" in bodyRecord) {
+    const cloned: UnknownRecord = { ...bodyRecord };
+    delete cloned.apiKey;
+    payloadForValidation = cloned;
+  }
+
+  const validation = validateDirectorRequest(payloadForValidation);
 
   if (!validation.ok) {
     return NextResponse.json(
@@ -42,43 +68,9 @@ export async function POST(request: Request) {
   }
 
   const credentials: DirectorProviderCredentials = {};
-
-  const headerApiKey = request.headers
-    .get("x-provider-api-key")
-    ?.trim();
-
-  if (headerApiKey) {
-    credentials.google = { apiKey: headerApiKey };
-    credentials.nanoBanana = { apiKey: headerApiKey };
-  }
-
-  const session = await auth();
-
-  const googleAccessToken = session?.providerTokens?.google?.accessToken;
-  if (googleAccessToken) {
-    credentials.google = {
-      ...(credentials.google ?? {}),
-      accessToken: googleAccessToken,
-    };
-  }
-
-  const nanoBananaKey = session?.providerTokens?.nanoBanana?.apiKey;
-  if (nanoBananaKey) {
-    credentials.nanoBanana = {
-      ...(credentials.nanoBanana ?? {}),
-      apiKey: nanoBananaKey,
-    };
-  }
-
-  const hasGoogleCredential = Boolean(
-    credentials.google?.accessToken ?? credentials.google?.apiKey
-  );
-
-  if (REQUIRE_AUTHENTICATED_SESSION && !hasGoogleCredential) {
-    return NextResponse.json(
-      { error: "Sign in with Google to access Director Core." },
-      { status: 401 }
-    );
+  if (providedApiKey) {
+    credentials.google = { apiKey: providedApiKey };
+    credentials.nanoBanana = { apiKey: providedApiKey };
   }
 
   try {
@@ -483,31 +475,3 @@ function getNonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function sanitizeErrorDetails(details: unknown): unknown {
-  if (details === undefined) {
-    return undefined;
-  }
-
-  if (
-    details === null ||
-    typeof details === "string" ||
-    typeof details === "number" ||
-    typeof details === "boolean"
-  ) {
-    return details;
-  }
-
-  try {
-    return structuredClone(details);
-  } catch {
-    return undefined;
-  }
-}
-
-function formatSuccessPayload(result: DirectorCoreResult): DirectorCoreResult {
-  try {
-    return structuredClone(result);
-  } catch {
-    return result;
-  }
-}
