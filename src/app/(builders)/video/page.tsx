@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 
 import { CopyButton } from "@/components/copy-button";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
@@ -9,6 +8,7 @@ import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
+import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
   DirectorMediaAsset,
   DirectorRequest,
@@ -150,7 +150,7 @@ export default function VideoBuilderPage() {
   const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
   const [useSamplePlan, setUseSamplePlan] = useState(false);
-  const { status } = useSession();
+  const { geminiApiKey, veoApiKey } = useProviderCredentials();
 
   useEffect(() => {
     const activePlan = useSamplePlan ? SAMPLE_VIDEO_PLAN : INITIAL_FORM_STATE;
@@ -251,19 +251,13 @@ export default function VideoBuilderPage() {
     return (
       visionSeedText.trim().length > 0 &&
       scriptText.trim().length > 0 &&
-      !isSubmitting &&
-      status === "authenticated"
+      !isSubmitting
     );
-  }, [isSubmitting, scriptText, status, visionSeedText]);
+  }, [isSubmitting, scriptText, visionSeedText]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
-
-    if (status !== "authenticated") {
-      setError("Sign in with Google to generate video plans.");
-      return;
-    }
 
     setIsSubmitting(true);
     setError(null);
@@ -326,9 +320,17 @@ export default function VideoBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (geminiApiKey?.trim()) {
+        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
+      }
+      if (veoApiKey?.trim()) {
+        headers["X-Veo-Api-Key"] = veoApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 

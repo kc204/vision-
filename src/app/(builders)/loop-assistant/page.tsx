@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { encodeFiles } from "@/lib/encodeFiles";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
+import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 
 type LoopAssistantMessage = {
   role: "user" | "assistant";
@@ -44,7 +44,7 @@ export default function LoopAssistantPage() {
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
-  const { status } = useSession();
+  const { geminiApiKey } = useProviderCredentials();
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -60,26 +60,22 @@ export default function LoopAssistantPage() {
   }, [useSampleAssistant]);
 
   useEffect(() => {
-    if (status === "loading") {
-      return;
-    }
-
-    if (status !== "authenticated") {
-      setMessages([]);
-      setIsRequesting(false);
-      return;
-    }
-
     let isActive = true;
 
     async function bootstrapConversation() {
       setIsRequesting(true);
       setError(null);
+      setMessages([]);
 
       try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (geminiApiKey?.trim()) {
+          headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
+        }
+
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -90,11 +86,11 @@ export default function LoopAssistantPage() {
         const data = (await response.json()) as LoopAssistantResponse;
         const assistantMessage = normaliseAssistantMessage(data);
 
-        if (assistantMessage.trim().length === 0) {
+        if (!isActive) {
           return;
         }
 
-        if (isActive) {
+        if (assistantMessage.trim().length > 0) {
           setMessages([{ role: "assistant", content: assistantMessage }]);
         }
       } catch (initialisationError) {
@@ -117,7 +113,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, [status]);
+  }, [geminiApiKey]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -126,11 +122,6 @@ export default function LoopAssistantPage() {
 
     const trimmed = messageInput.trim();
     if (trimmed.length === 0 || isRequesting) {
-      return;
-    }
-
-    if (status !== "authenticated") {
-      setError("Sign in with Google to continue the loop conversation.");
       return;
     }
 
@@ -149,9 +140,14 @@ export default function LoopAssistantPage() {
     try {
       const encodedImages = await encodeFiles(files);
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (geminiApiKey?.trim()) {
+        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
+      }
+
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,

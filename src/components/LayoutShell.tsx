@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
+
+import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 
 const navItems = [
   { href: "/image", label: "Image" },
@@ -14,20 +15,33 @@ const navItems = [
 
 export function LayoutShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { data: session, status } = useSession();
+  const { geminiApiKey, veoApiKey, nanoBananaApiKey } = useProviderCredentials();
 
-  const tokenExpiryLabel = useMemo(() => {
-    const expiresAt = session?.accessTokenExpires;
-    if (!expiresAt) {
-      return null;
-    }
-    try {
-      const date = new Date(expiresAt);
-      return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString();
-    } catch {
-      return null;
-    }
-  }, [session?.accessTokenExpires]);
+  const providerStatuses = useMemo(
+    () => [
+      {
+        label: "Gemini",
+        ready:
+          Boolean(geminiApiKey?.trim().length) ||
+          Boolean(process.env.NEXT_PUBLIC_GEMINI_API_KEY?.length) ||
+          Boolean(process.env.NEXT_PUBLIC_GOOGLE_API_KEY?.length),
+      },
+      {
+        label: "Veo",
+        ready:
+          Boolean(veoApiKey?.trim().length) ||
+          Boolean(process.env.NEXT_PUBLIC_VEO_API_KEY?.length) ||
+          Boolean(process.env.NEXT_PUBLIC_GOOGLE_API_KEY?.length),
+      },
+      {
+        label: "Nano Banana",
+        ready:
+          Boolean(nanoBananaApiKey?.trim().length) ||
+          Boolean(process.env.NEXT_PUBLIC_NANO_BANANA_API_KEY?.length),
+      },
+    ],
+    [geminiApiKey, veoApiKey, nanoBananaApiKey]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -60,53 +74,26 @@ export function LayoutShell({ children }: { children: ReactNode }) {
             </nav>
             <div className="flex flex-col items-start gap-2 text-sm text-slate-300 sm:flex-row sm:items-center">
               <div className="flex flex-col text-left">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Google account</span>
-                <span className="font-medium text-white">
-                  {status === "loading"
-                    ? "Checking session…"
-                    : session?.user?.email ?? "Not signed in"}
+                <span className="text-xs uppercase tracking-wide text-slate-500">API credentials</span>
+                <span className="font-medium text-white">Stored locally in your browser</span>
+                <span className="text-xs text-slate-400">
+                  Keys are applied to Director Core requests when available.
                 </span>
-                {session?.accessToken && tokenExpiryLabel ? (
-                  <span className="text-xs text-slate-400">
-                    Token refreshes ~ {tokenExpiryLabel}
-                  </span>
-                ) : null}
               </div>
-              {status === "authenticated" ? (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void signIn("google", {
-                        callbackUrl: typeof window !== "undefined" ? window.location.href : undefined,
-                        prompt: "consent",
-                      })
-                    }
-                    className="rounded-full border border-canvas-accent/60 px-3 py-1 text-xs font-medium text-white transition hover:bg-canvas-accent/20"
+              <div className="flex flex-wrap gap-2">
+                {providerStatuses.map((status) => (
+                  <span
+                    key={status.label}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      status.ready
+                        ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
+                        : "bg-amber-500/10 text-amber-200/90 ring-1 ring-amber-500/30"
+                    }`}
                   >
-                    Refresh token
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void signOut({ callbackUrl: "/" })}
-                    className="rounded-full bg-canvas-accent/70 px-3 py-1 text-xs font-medium text-slate-950 transition hover:bg-canvas-accent"
-                  >
-                    Sign out
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void signIn("google", {
-                      callbackUrl: typeof window !== "undefined" ? window.location.href : undefined,
-                    })
-                  }
-                  className="rounded-full bg-canvas-accent px-4 py-1 text-xs font-semibold text-slate-950 shadow transition hover:bg-canvas-accent/90"
-                >
-                  Sign in with Google
-                </button>
-              )}
+                    {status.label}: {status.ready ? "Ready" : "Needed"}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>

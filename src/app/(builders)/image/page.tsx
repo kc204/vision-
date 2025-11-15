@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
+import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
   DirectorMediaAsset,
   DirectorRequest,
@@ -149,7 +149,7 @@ export default function ImageBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
   const [useSampleSeed, setUseSampleSeed] = useState(false);
-  const { status } = useSession();
+  const { geminiApiKey } = useProviderCredentials();
 
   useEffect(() => {
     if (useSampleSeed) {
@@ -239,16 +239,11 @@ export default function ImageBuilderPage() {
     selectedVisualOptions.length > 0 ||
     files.length > 0;
 
-  const canSubmit = hasSeedContent && !isSubmitting && status === "authenticated";
+  const canSubmit = hasSeedContent && !isSubmitting;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
-
-    if (status !== "authenticated") {
-      setError("Sign in with Google to generate prompts.");
-      return;
-    }
 
     setIsSubmitting(true);
     setError(null);
@@ -270,9 +265,14 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (geminiApiKey?.trim()) {
+        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 

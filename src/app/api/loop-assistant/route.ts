@@ -51,6 +51,16 @@ export async function POST(request: Request) {
   return NextResponse.json({ reply: result.reply });
 }
 
+function getHeaderValue(request: Request, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = request.headers.get(name);
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
 function parseMessages(value: unknown): ValidationResult {
   if (value === undefined) {
     return { ok: true, value: [] };

@@ -31,7 +31,7 @@ export type DirectorProviderCredentials = {
     apiKey: string;
   };
   nanoBanana?: {
-    apiKey: string;
+    apiKey?: string;
   };
 };
 

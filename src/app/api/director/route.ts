@@ -372,6 +372,20 @@ function parseImagePromptPayload(value: unknown): ValidationResult {
   return { ok: true, value: payload };
 }
 
+function getHeaderValue(request: Request, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = request.headers.get(name);
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function hasEnvCredential(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function parseVideoPlanPayload(value: unknown): ValidationResult {
   if (!isRecord(value)) {
     return { ok: false, error: "payload must be an object" };
