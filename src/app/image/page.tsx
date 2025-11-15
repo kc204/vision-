@@ -8,10 +8,10 @@ import {
   cameraAngles,
   shotSizes,
   colorPalettes,
-  compositionTechniques,
-  lightingVocabulary,
-  motionCues,
-  stylePacks,
+  composition,
+  lightingStyles,
+  cameraMovement,
+  atmosphere,
   VisualOption,
   groupOptions,
   searchOptions,
@@ -38,12 +38,12 @@ export default function ImagePromptBuilderPage() {
   const [modelChoice, setModelChoice] = useState<ModelChoice>("sdxl");
   const [cameraAngleId, setCameraAngleId] = useState<string>("");
   const [shotSizeId, setShotSizeId] = useState<string>("");
-  const [compositionTechniqueId, setCompositionTechniqueId] =
+  const [compositionId, setCompositionId] =
     useState<string>("");
-  const [lightingVocabularyId, setLightingVocabularyId] = useState<string>("");
+  const [lightingStyleId, setLightingStyleId] = useState<string>("");
   const [colorPaletteId, setColorPaletteId] = useState<string>("");
-  const [motionCueIds, setMotionCueIds] = useState<string[]>([]);
-  const [stylePackIds, setStylePackIds] = useState<string[]>([]);
+  const [cameraMovementIds, setCameraMovementIds] = useState<string[]>([]);
+  const [atmosphereIds, setAtmosphereIds] = useState<string[]>([]);
   const [visionSeedImages, setVisionSeedImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +52,27 @@ export default function ImagePromptBuilderPage() {
   const disableGenerate = useMemo(() => {
     return visionSeedText.trim().length === 0 || isLoading;
   }, [visionSeedText, isLoading]);
+
+  const selectedOptionIds = useMemo(
+    () => ({
+      cameraAngles: cameraAngleId ? [cameraAngleId] : [],
+      shotSizes: shotSizeId ? [shotSizeId] : [],
+      composition: compositionId ? [compositionId] : [],
+      cameraMovement: cameraMovementIds,
+      lightingStyles: lightingStyleId ? [lightingStyleId] : [],
+      colorPalettes: colorPaletteId ? [colorPaletteId] : [],
+      atmosphere: atmosphereIds,
+    }),
+    [
+      atmosphereIds,
+      cameraAngleId,
+      cameraMovementIds,
+      colorPaletteId,
+      compositionId,
+      lightingStyleId,
+      shotSizeId,
+    ]
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,14 +89,7 @@ export default function ImagePromptBuilderPage() {
           type: "image_prompt" as const,
           visionSeedText,
           modelChoice,
-          cameraAngleId: cameraAngleId || undefined,
-          shotSizeId: shotSizeId || undefined,
-          compositionTechniqueId:
-            compositionTechniqueId || undefined,
-          lightingVocabularyId: lightingVocabularyId || undefined,
-          colorPaletteId: colorPaletteId || undefined,
-          motionCueIds: motionCueIds.length ? motionCueIds : undefined,
-          stylePackIds: stylePackIds.length ? stylePackIds : undefined,
+          selectedOptions: selectedOptionIds,
         }),
       });
 
@@ -170,22 +184,18 @@ export default function ImagePromptBuilderPage() {
             placeholder="Search classic framings"
           />
           <VisualOptionBrowser
-            label="Composition technique"
-            options={compositionTechniques}
-            selectedIds={
-              compositionTechniqueId ? [compositionTechniqueId] : []
-            }
-            onSelectionChange={(ids) =>
-              setCompositionTechniqueId(ids[0] ?? "")
-            }
+            label="Composition"
+            options={composition}
+            selectedIds={compositionId ? [compositionId] : []}
+            onSelectionChange={(ids) => setCompositionId(ids[0] ?? "")}
             placeholder="Rule of thirds, golden ratio, leading lines..."
             helperText="Define how the frame guides attention."
           />
           <VisualOptionBrowser
-            label="Lighting vocabulary"
-            options={lightingVocabulary}
-            selectedIds={lightingVocabularyId ? [lightingVocabularyId] : []}
-            onSelectionChange={(ids) => setLightingVocabularyId(ids[0] ?? "")}
+            label="Lighting style"
+            options={lightingStyles}
+            selectedIds={lightingStyleId ? [lightingStyleId] : []}
+            onSelectionChange={(ids) => setLightingStyleId(ids[0] ?? "")}
             placeholder="Soft wrap, Rembrandt, neon bounce..."
             helperText="Describe the light quality or technique."
           />
@@ -197,21 +207,21 @@ export default function ImagePromptBuilderPage() {
             placeholder="Search palettes by tone or vibe"
           />
           <VisualOptionBrowser
-            label="Motion cues"
-            options={motionCues}
-            selectedIds={motionCueIds}
-            onSelectionChange={setMotionCueIds}
+            label="Camera movement"
+            options={cameraMovement}
+            selectedIds={cameraMovementIds}
+            onSelectionChange={setCameraMovementIds}
             placeholder="Stack movement ideas (whip pan, parallax...)"
-            helperText="Select multiple cues to hint at camera movement."
+            helperText="Select multiple cues to hint at camera motion."
             multiple
           />
           <VisualOptionBrowser
-            label="Style packs"
-            options={stylePacks}
-            selectedIds={stylePackIds}
-            onSelectionChange={setStylePackIds}
-            placeholder="Search looks like neo noir, anime cel, retro futurism"
-            helperText="Blend stylistic treatments or illustration modes."
+            label="Atmosphere & setting"
+            options={atmosphere}
+            selectedIds={atmosphereIds}
+            onSelectionChange={setAtmosphereIds}
+            placeholder="Search moods like misty forest, skyport, sacred library"
+            helperText="Select multiple environments or vibes to steer the scene."
             multiple
           />
         </fieldset>

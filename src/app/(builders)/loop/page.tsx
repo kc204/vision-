@@ -2,9 +2,9 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
-import { ImageDropzone } from "@/components/image-dropzone";
+import { ImageDropzone } from "@/components/ImageDropzone";
 
-type ContinuityLock = {
+type ContinuityLocks = {
   subject_identity: string;
   lighting_and_palette: string;
   camera_grammar: string;
@@ -24,11 +24,12 @@ type LoopCycleJSON = {
   title?: string;
   beat_summary?: string;
   prompt: string;
-  start_frame: number;
+  start_frame_description: string;
   loop_length: number;
-  continuity_lock: ContinuityLock;
+  continuity_locks: ContinuityLocks;
   keyframes?: LoopKeyframe[];
   mood_profile?: string;
+  acceptance_checks?: string[];
 };
 
 type DirectorError = {
@@ -36,18 +37,22 @@ type DirectorError = {
 };
 
 export default function LoopSequenceBuilderPage() {
-  const [visionSeed, setVisionSeed] = useState("");
-  const [startFrame, setStartFrame] = useState<number>(0);
+  const [visionSeedText, setVisionSeedText] = useState("");
+  const [startFrameDescription, setStartFrameDescription] = useState("");
   const [loopLength, setLoopLength] = useState<number>(48);
   const [includeMoodProfile, setIncludeMoodProfile] = useState(false);
-  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
 
   const disableSubmit = useMemo(() => {
-    return visionSeed.trim().length === 0 || isLoading;
-  }, [visionSeed, isLoading]);
+    return (
+      isLoading ||
+      visionSeedText.trim().length === 0 ||
+      startFrameDescription.trim().length === 0
+    );
+  }, [isLoading, startFrameDescription, visionSeedText]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -57,16 +62,22 @@ export default function LoopSequenceBuilderPage() {
     setError(null);
 
     try {
+      const encodedReferences = await encodeFilesAsDataUrls(referenceImages);
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "loop_sequence",
-          visionSeed,
-          startFrame,
-          loopLength,
-          includeMoodProfile,
-          referenceImage,
+          payload: {
+            vision_seed_text: visionSeedText.trim(),
+            start_frame_description: startFrameDescription.trim(),
+            loop_length: loopLength,
+            include_mood_profile: includeMoodProfile,
+            reference_images: encodedReferences.length
+              ? encodedReferences
+              : undefined,
+          },
         }),
       });
 
@@ -80,10 +91,7 @@ export default function LoopSequenceBuilderPage() {
       }
 
       const data = (await response.json()) as unknown;
-      const parsed = normalizeLoopCycles(data);
-      if (!parsed) {
-        throw new Error("Received malformed loop data");
-      }
+      const parsed = parseLoopCycles(data);
 
       setCycles(parsed);
     } catch (requestError) {
@@ -129,8 +137,8 @@ export default function LoopSequenceBuilderPage() {
             Vision Seed
           </label>
           <textarea
-            value={visionSeed}
-            onChange={(event) => setVisionSeed(event.target.value)}
+            value={visionSeedText}
+            onChange={(event) => setVisionSeedText(event.target.value)}
             rows={6}
             className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
             placeholder="A neon-lit ramen stand in the rain, steam swirling into a holographic skyline as the night resets"
@@ -138,21 +146,22 @@ export default function LoopSequenceBuilderPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
+          <div className="space-y-3 md:col-span-2">
             <label className="block text-sm font-medium text-slate-200">
-              Start frame
+              Start frame description
             </label>
-            <input
-              type="number"
-              value={startFrame}
-              min={0}
+            <textarea
+              value={startFrameDescription}
               onChange={(event) =>
-                setStartFrame(Number.parseInt(event.target.value, 10) || 0)
+                setStartFrameDescription(event.target.value)
               }
-              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              rows={4}
+              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              placeholder="Describe the first frame we land on before the loop resolves."
             />
             <p className="text-xs text-slate-400">
-              Frame index where the loop begins (0 = first frame).
+              Explain what the viewer sees at the exact frame where the loop
+              begins.
             </p>
           </div>
 
@@ -179,7 +188,13 @@ export default function LoopSequenceBuilderPage() {
           </div>
         </div>
 
-        <ImageDropzone value={referenceImage} onChange={setReferenceImage} />
+        <ImageDropzone
+          files={referenceImages}
+          onFilesChange={setReferenceImages}
+          label="Reference images (optional)"
+          description="Drop PNG, JPG, or WEBP frames to ground the start frame and tone."
+          maxFiles={6}
+        />
 
         <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/30 p-4">
           <div>
@@ -244,37 +259,6 @@ export default function LoopSequenceBuilderPage() {
   );
 }
 
-function normalizeLoopCycles(payload: unknown): LoopCycleJSON[] | null {
-  if (!payload) return null;
-  if (Array.isArray(payload)) {
-    return payload.filter(isLoopCycle);
-  }
-
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    Array.isArray((payload as { cycles?: unknown }).cycles)
-  ) {
-    const cycles = (payload as { cycles: unknown[] }).cycles;
-    return cycles.filter(isLoopCycle) as LoopCycleJSON[];
-  }
-
-  return null;
-}
-
-function isLoopCycle(value: unknown): value is LoopCycleJSON {
-  if (!value || typeof value !== "object") return false;
-  const cycle = value as Partial<LoopCycleJSON>;
-  return (
-    typeof cycle.cycle_id === "string" &&
-    typeof cycle.prompt === "string" &&
-    typeof cycle.start_frame === "number" &&
-    typeof cycle.loop_length === "number" &&
-    cycle.continuity_lock !== undefined &&
-    typeof cycle.continuity_lock === "object"
-  );
-}
-
 type LoopCycleCardProps = {
   cycle: LoopCycleJSON;
 };
@@ -297,8 +281,7 @@ function LoopCycleCard({ cycle }: LoopCycleCardProps) {
           <p className="text-sm text-slate-300">{cycle.beat_summary}</p>
         )}
         <p className="text-xs text-slate-400">
-          Start frame {cycle.start_frame} · Loop length {cycle.loop_length}{" "}
-          frames
+          {cycle.start_frame_description} · Loop length {cycle.loop_length} frames
         </p>
       </header>
 
@@ -318,25 +301,25 @@ function LoopCycleCard({ cycle }: LoopCycleCardProps) {
             <dt className="text-xs uppercase tracking-wide text-slate-400">
               Subject identity
             </dt>
-            <dd>{cycle.continuity_lock.subject_identity}</dd>
+            <dd>{cycle.continuity_locks.subject_identity}</dd>
           </div>
           <div className="rounded-lg bg-slate-900/50 p-3">
             <dt className="text-xs uppercase tracking-wide text-slate-400">
               Lighting & palette
             </dt>
-            <dd>{cycle.continuity_lock.lighting_and_palette}</dd>
+            <dd>{cycle.continuity_locks.lighting_and_palette}</dd>
           </div>
           <div className="rounded-lg bg-slate-900/50 p-3">
             <dt className="text-xs uppercase tracking-wide text-slate-400">
               Camera grammar
             </dt>
-            <dd>{cycle.continuity_lock.camera_grammar}</dd>
+            <dd>{cycle.continuity_locks.camera_grammar}</dd>
           </div>
           <div className="rounded-lg bg-slate-900/50 p-3">
             <dt className="text-xs uppercase tracking-wide text-slate-400">
               Environment motif
             </dt>
-            <dd>{cycle.continuity_lock.environment_motif}</dd>
+            <dd>{cycle.continuity_locks.environment_motif}</dd>
           </div>
         </dl>
       </section>
@@ -373,6 +356,96 @@ function LoopCycleCard({ cycle }: LoopCycleCardProps) {
           </p>
         </section>
       )}
+
+      {cycle.acceptance_checks && cycle.acceptance_checks.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Acceptance checks
+          </h3>
+          <ul className="space-y-2 text-sm text-slate-300">
+            {cycle.acceptance_checks.map((check, index) => (
+              <li
+                key={`${cycle.cycle_id}-acceptance-${index}`}
+                className="rounded-lg border border-white/5 bg-slate-950/60 p-3"
+              >
+                {check}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </article>
+  );
+}
+
+async function encodeFilesAsDataUrls(files: File[]): Promise<string[]> {
+  const encodings = await Promise.allSettled(
+    files.map((file) => readFileAsDataUrl(file))
+  );
+
+  return encodings
+    .filter((result): result is PromiseFulfilledResult<string> =>
+      result.status === "fulfilled"
+    )
+    .map((result) => result.value);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to encode file"));
+      }
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to encode file"));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function parseLoopCycles(payload: unknown): LoopCycleJSON[] {
+  if (!Array.isArray(payload)) {
+    throw new Error("Director response did not include loop cycles");
+  }
+
+  const cycles = payload.filter(isLoopCycle);
+
+  if (cycles.length === 0) {
+    throw new Error("Director response did not include valid loop cycles");
+  }
+
+  return cycles;
+}
+
+function isLoopCycle(value: unknown): value is LoopCycleJSON {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LoopCycleJSON> & {
+    continuity_locks?: Partial<ContinuityLocks>;
+  };
+
+  if (
+    typeof candidate.cycle_id !== "string" ||
+    typeof candidate.prompt !== "string" ||
+    typeof candidate.start_frame_description !== "string" ||
+    typeof candidate.loop_length !== "number"
+  ) {
+    return false;
+  }
+
+  if (!candidate.continuity_locks || typeof candidate.continuity_locks !== "object") {
+    return false;
+  }
+
+  const locks = candidate.continuity_locks as Partial<ContinuityLocks>;
+
+  return (
+    typeof locks.subject_identity === "string" &&
+    typeof locks.lighting_and_palette === "string" &&
+    typeof locks.camera_grammar === "string" &&
+    typeof locks.environment_motif === "string"
   );
 }
