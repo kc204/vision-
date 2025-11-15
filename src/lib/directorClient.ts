@@ -2,10 +2,37 @@ import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import type {
   DirectorCoreResult,
   DirectorRequest,
+  DirectorCoreSuccess,
   GeneratedImage,
   GeneratedVideo,
   LoopSequenceResult,
 } from "./directorTypes";
+
+export type DirectorCoreErrorInit = {
+  code?: string;
+  status?: number;
+  provider?: string;
+  details?: unknown;
+  fallbackResult?: DirectorCoreSuccess;
+};
+
+export class DirectorCoreError extends Error {
+  code?: string;
+  status?: number;
+  provider?: string;
+  details?: unknown;
+  fallbackResult?: DirectorCoreSuccess;
+
+  constructor(message: string, init: DirectorCoreErrorInit = {}) {
+    super(message);
+    this.name = "DirectorCoreError";
+    this.code = init.code;
+    this.status = init.status;
+    this.provider = init.provider;
+    this.details = init.details;
+    this.fallbackResult = init.fallbackResult;
+  }
+}
 
 const GEMINI_API_URL =
   process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
