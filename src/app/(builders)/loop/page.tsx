@@ -16,6 +16,7 @@ import {
   shotSizes,
   type VisualOption,
 } from "@/lib/visualOptions";
+import { useProviderApiKey } from "@/hooks/useProviderApiKey";
 import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 
 type LoopSelectedOptions = {
@@ -86,6 +87,7 @@ export default function LoopBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
+  const { providerApiKey, setProviderApiKey } = useProviderApiKey();
   const { nanoBananaApiKey } = useProviderCredentials();
 
   useEffect(() => {
@@ -178,6 +180,10 @@ export default function LoopBuilderPage() {
       };
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const sessionProviderKey = providerApiKey.trim();
+      if (sessionProviderKey) {
+        headers["x-provider-api-key"] = sessionProviderKey;
+      }
       if (nanoBananaApiKey?.trim()) {
         headers["X-Nano-Banana-Api-Key"] = nanoBananaApiKey.trim();
       }
@@ -283,6 +289,28 @@ export default function LoopBuilderPage() {
               Leave blank for 4–8 cycles. Provide a number to request an exact cycle count.
             </span>
           </label>
+        </div>
+
+        <div className="space-y-2">
+          <label
+            className="text-sm font-semibold text-slate-200"
+            htmlFor="loop-provider-api-key"
+          >
+            Provider API key (optional)
+          </label>
+          <input
+            id="loop-provider-api-key"
+            type="text"
+            value={providerApiKey}
+            onChange={(event) => setProviderApiKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Paste a provider key for this session"
+            className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+          />
+          <p className="text-xs text-slate-400">
+            Stored per session and reused for subsequent requests.
+          </p>
         </div>
 
         <ImageDropzone
