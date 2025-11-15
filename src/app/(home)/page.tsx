@@ -13,13 +13,13 @@ export default function HomePage() {
         </p>
         <div className="mt-8 flex flex-col gap-4 sm:flex-row">
           <Link
-            href="/image"
+            href="/app/image"
             className="inline-flex items-center justify-center rounded-lg bg-canvas-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-500"
           >
             Launch Vision Architect
           </Link>
           <Link
-            href="/video"
+            href="/app/video"
             className="inline-flex items-center justify-center rounded-lg border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:border-white/40"
           >
             Launch YouTube Cinematic Director

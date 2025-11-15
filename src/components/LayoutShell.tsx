@@ -2,9 +2,9 @@ import Link from "next/link";
 import { ReactNode } from "react";
 
 const navigation = [
-  { href: "/image", label: "Image Builder" },
-  { href: "/video", label: "Video Director" },
-  { href: "/loop", label: "Loop Designer" },
+  { href: "/app/image", label: "Image Builder" },
+  { href: "/app/video", label: "Video Director" },
+  { href: "/app/loop", label: "Loop Designer" },
 ];
 
 export interface LayoutShellProps {
