@@ -162,9 +162,7 @@ export default function ImagePromptBuilderPage() {
     return Object.values(visionSeed).some((value) => value.trim().length > 0);
   }, [visionSeed]);
 
-  const disableGenerate = useMemo(() => {
-    return isLoading || !hasVisionSeed;
-  }, [hasVisionSeed, isLoading]);
+  const disableGenerate = isLoading || (!hasVisionSeed && visionSeedImages.length === 0);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -176,6 +174,7 @@ export default function ImagePromptBuilderPage() {
 
     setIsLoading(true);
     setError(null);
+    setResult(null);
 
     const payload: DirectorRequest = {
       mode: "image_prompt",
@@ -196,17 +195,29 @@ export default function ImagePromptBuilderPage() {
         body: JSON.stringify(payload),
       });
 
+      const responseBody = await response.json().catch(() => null);
+
       if (!response.ok) {
-        throw new Error("Request failed");
+        const message =
+          (responseBody && typeof responseBody.error === "string"
+            ? responseBody.error
+            : null) ??
+          "We couldn’t craft that prompt. Check your inputs and try again.";
+        throw new Error(message);
       }
 
-      const data = (await response.json()) as DirectorImagePromptResponse;
-      setResult(data);
+      if (!responseBody) {
+        throw new Error("Director service returned an unexpected response.");
+      }
+
+      setResult(responseBody as DirectorImagePromptResponse);
     } catch (requestError) {
       console.error(requestError);
-      setError(
-        "We couldn’t craft that prompt. Check your inputs and try again."
-      );
+      const message =
+        requestError instanceof Error && requestError.message
+          ? requestError.message
+          : "We couldn’t craft that prompt. Check your inputs and try again.";
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -337,6 +348,13 @@ export default function ImagePromptBuilderPage() {
                 {result.summary}
               </p>
             </PromptOutput>
+            {result.moodMemory ? (
+              <PromptOutput title="Mood memory">
+                <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
+                  {result.moodMemory}
+                </p>
+              </PromptOutput>
+            ) : null}
             <PromptOutput
               title="Positive prompt"
               copyLabel="Copy positive prompt"
