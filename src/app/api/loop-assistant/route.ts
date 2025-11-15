@@ -26,12 +26,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Body must be an object" }, { status: 400 });
   }
 
-  const validation = parseMessages((body as Record<string, unknown>).messages);
+  const bodyRecord = body as Record<string, unknown>;
+  const apiKey =
+    getNonEmptyString(request.headers.get("x-provider-api-key")) ??
+    getNonEmptyString(bodyRecord.apiKey);
+
+  const validation = parseMessages(
+    bodyRecord.messages ?? bodyRecord.history
+  );
   if (!validation.ok) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const result = await callGeminiChat(systemPrompt, validation.value);
+  const result = await callGeminiChat(systemPrompt, validation.value, apiKey);
   if (!result.success) {
     const { status, error, details } = result;
     const responseBody: Record<string, unknown> = { error };
@@ -73,4 +80,13 @@ function parseMessages(value: unknown): ValidationResult {
   }
 
   return { ok: true, value: messages };
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

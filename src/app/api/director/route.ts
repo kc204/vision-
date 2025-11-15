@@ -15,7 +15,7 @@ type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
 
-const DIRECTOR_API_KEY_HEADER = "x-director-api-key";
+const DIRECTOR_API_KEY_HEADER = "x-provider-api-key";
 const REQUIRE_DIRECTOR_API_KEY = parseEnvBoolean(
   process.env.DIRECTOR_CORE_REQUIRE_API_KEY
 );
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await callDirectorCore(validation.value);
+    const result = await callDirectorCore(validation.value, apiKey);
     if (isDirectorCoreError(result)) {
       const status = result.status ?? 502;
       return NextResponse.json(
@@ -467,4 +467,94 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseEnvBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractApiKeyFromHeaders(headers: Headers): string | undefined {
+  const primary = getNonEmptyString(headers.get(DIRECTOR_API_KEY_HEADER));
+  if (primary) {
+    return primary;
+  }
+
+  return getNonEmptyString(headers.get("x-director-api-key"));
+}
+
+function resolveStatusFromCode(code: unknown): number | undefined {
+  if (typeof code === "number" && Number.isInteger(code) && code > 0) {
+    return code;
+  }
+
+  if (typeof code === "string") {
+    const normalized = code.trim().toLowerCase();
+    switch (normalized) {
+      case "invalid_argument":
+      case "bad_request":
+        return 400;
+      case "unauthenticated":
+      case "unauthorized":
+        return 401;
+      case "permission_denied":
+      case "forbidden":
+        return 403;
+      case "not_found":
+        return 404;
+      case "already_exists":
+        return 409;
+      case "resource_exhausted":
+      case "quota_exceeded":
+        return 429;
+      case "unavailable":
+        return 503;
+      default:
+        return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function sanitizeErrorDetails(details: unknown): unknown {
+  if (details === undefined) {
+    return undefined;
+  }
+
+  if (
+    details === null ||
+    typeof details === "string" ||
+    typeof details === "number" ||
+    typeof details === "boolean"
+  ) {
+    return details;
+  }
+
+  try {
+    return structuredClone(details);
+  } catch {
+    return undefined;
+  }
+}
+
+function formatSuccessPayload(result: DirectorCoreResult): DirectorCoreResult {
+  try {
+    return structuredClone(result);
+  } catch {
+    return result;
+  }
 }
