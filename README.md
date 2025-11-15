@@ -34,9 +34,9 @@ The app exposes two primary modules:
 ```
 src/
   app/
-    (home)/page.tsx          # Landing page
-    image/page.tsx           # Vision Architect UI
-    video/page.tsx           # YouTube Cinematic Director UI
+    (home)/page.tsx                  # Landing page
+    (builders)/image/page.tsx        # Vision Architect UI
+    video/page.tsx                   # YouTube Cinematic Director UI
     api/
       director/route.ts
   components/
@@ -50,6 +50,6 @@ src/
 ```
 
 ## Notes
-- The `/api/director` endpoint expects a JSON POST body that matches one of the `DirectorRequest` variants and returns `{ "text": string }` from the future Director Core integration.
+- The `/api/director` endpoint expects a JSON POST body that matches one of the `DirectorRequest` variants and responds with plain-text output from the future Director Core integration.
 - The Gemini-based Director Core client is currently a stub and will throw until the service is wired up.
 - Initial persistence is in-memory only; future iterations can add database-backed history.
