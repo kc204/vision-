@@ -7,8 +7,13 @@ import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
 import type { DirectorRequest, VideoPlanPayload, VideoPlanResponse } from "@/lib/directorTypes";
 import {
+  atmosphere,
+  cameraAngles,
+  cameraMovement,
+  colorPalettes,
   composition,
   lightingStyles,
+  shotSizes,
   type VisualOption,
 } from "@/lib/visualOptions";
 import { encodeFiles } from "@/lib/encodeFiles";
@@ -43,13 +48,74 @@ export default function VideoBuilderPage() {
   const [tone, setTone] = useState<VideoPlanPayload["tone"]>("informative");
   const [visualStyle, setVisualStyle] = useState<VideoPlanPayload["visual_style"]>("realistic");
   const [aspectRatio, setAspectRatio] = useState<VideoPlanPayload["aspect_ratio"]>("16:9");
+  const [cameraAngleSelection, setCameraAngleSelection] = useState<string[]>([]);
+  const [shotSizeSelection, setShotSizeSelection] = useState<string[]>([]);
+  const [cameraMovementSelection, setCameraMovementSelection] = useState<string[]>([]);
   const [lightingSelection, setLightingSelection] = useState<string[]>([]);
   const [compositionSelection, setCompositionSelection] = useState<string[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
+  const [colorPaletteSelection, setColorPaletteSelection] = useState<string[]>([]);
+  const [atmosphereSelection, setAtmosphereSelection] = useState<string[]>([]);
   const [moodProfile, setMoodProfile] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoPlanResult | null>(null);
+
+  const cinematicControlGroups: Array<{
+    label: string;
+    options: VisualOption[];
+    selected: string[];
+    onToggle: (id: string) => void;
+  }> = [
+    {
+      label: "Camera angles",
+      options: cameraAngles,
+      selected: cameraAngleSelection,
+      onToggle: (id) =>
+        setCameraAngleSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Shot sizes",
+      options: shotSizes,
+      selected: shotSizeSelection,
+      onToggle: (id) =>
+        setShotSizeSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Camera movement",
+      options: cameraMovement,
+      selected: cameraMovementSelection,
+      onToggle: (id) =>
+        setCameraMovementSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Lighting presets",
+      options: lightingStyles,
+      selected: lightingSelection,
+      onToggle: (id) =>
+        setLightingSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Composition cues",
+      options: composition,
+      selected: compositionSelection,
+      onToggle: (id) =>
+        setCompositionSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Color palettes",
+      options: colorPalettes,
+      selected: colorPaletteSelection,
+      onToggle: (id) =>
+        setColorPaletteSelection((previous) => toggleSelection(previous, id)),
+    },
+    {
+      label: "Atmosphere & effects",
+      options: atmosphere,
+      selected: atmosphereSelection,
+      onToggle: (id) =>
+        setAtmosphereSelection((previous) => toggleSelection(previous, id)),
+    },
+  ];
 
   const canSubmit = useMemo(() => {
     return visionSeedText.trim().length > 0 && scriptText.trim().length > 0 && !isSubmitting;
@@ -64,7 +130,40 @@ export default function VideoBuilderPage() {
     setResult(null);
 
     try {
-      const images = await encodeFiles(files);
+      const cinematicControlOptions: NonNullable<
+        VideoPlanPayload["cinematic_control_options"]
+      > = {};
+
+      if (cameraAngleSelection.length) {
+        cinematicControlOptions.cameraAngles = cameraAngleSelection;
+      }
+
+      if (shotSizeSelection.length) {
+        cinematicControlOptions.shotSizes = shotSizeSelection;
+      }
+
+      if (cameraMovementSelection.length) {
+        cinematicControlOptions.cameraMovement = cameraMovementSelection;
+      }
+
+      if (lightingSelection.length) {
+        cinematicControlOptions.lightingStyles = lightingSelection;
+      }
+
+      if (compositionSelection.length) {
+        cinematicControlOptions.composition = compositionSelection;
+      }
+
+      if (colorPaletteSelection.length) {
+        cinematicControlOptions.colorPalettes = colorPaletteSelection;
+      }
+
+      if (atmosphereSelection.length) {
+        cinematicControlOptions.atmosphere = atmosphereSelection;
+      }
+
+      const hasCinematicControls =
+        Object.keys(cinematicControlOptions).length > 0;
 
       const payload: VideoPlanPayload = {
         vision_seed_text: visionSeedText.trim(),
@@ -73,13 +172,9 @@ export default function VideoBuilderPage() {
         visual_style: visualStyle,
         aspect_ratio: aspectRatio,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
-        lighting_and_composition_options:
-          lightingSelection.length || compositionSelection.length
-            ? {
-                lightingStyles: lightingSelection.length ? lightingSelection : undefined,
-                composition: compositionSelection.length ? compositionSelection : undefined,
-              }
-            : undefined,
+        cinematic_control_options: hasCinematicControls
+          ? cinematicControlOptions
+          : undefined,
       };
 
       const requestPayload: DirectorRequest = {
@@ -195,22 +290,15 @@ export default function VideoBuilderPage() {
             </div>
           </div>
 
-          <VideoOptionMultiSelect
-            label="Lighting presets"
-            options={lightingStyles}
-            selected={lightingSelection}
-            onToggle={(id) =>
-              setLightingSelection((previous) => toggleSelection(previous, id))
-            }
-          />
-          <VideoOptionMultiSelect
-            label="Composition cues"
-            options={composition}
-            selected={compositionSelection}
-            onToggle={(id) =>
-              setCompositionSelection((previous) => toggleSelection(previous, id))
-            }
-          />
+          {cinematicControlGroups.map((group) => (
+            <VideoOptionMultiSelect
+              key={group.label}
+              label={group.label}
+              options={group.options}
+              selected={group.selected}
+              onToggle={group.onToggle}
+            />
+          ))}
         </div>
 
         <ImageDropzone

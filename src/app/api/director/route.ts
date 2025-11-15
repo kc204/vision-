@@ -150,7 +150,7 @@ function parseVideoPlanPayload(value: unknown): ValidationResult {
     visual_style,
     aspect_ratio,
     mood_profile = null,
-    lighting_and_composition_options,
+    cinematic_control_options,
   } = value as UnknownRecord;
 
   if (!isNonEmptyString(vision_seed_text)) {
@@ -189,29 +189,11 @@ function parseVideoPlanPayload(value: unknown): ValidationResult {
     return { ok: false, error: "aspect_ratio is invalid" };
   }
 
-  let lighting_and_composition: VideoPlanPayload["lighting_and_composition_options"] | undefined;
-
-  if (lighting_and_composition_options !== undefined) {
-    if (!isRecord(lighting_and_composition_options)) {
-      return { ok: false, error: "lighting_and_composition_options must be an object" };
-    }
-
-    const lightingStyles = parseOptionalStringArray(
-      lighting_and_composition_options.lightingStyles
-    );
-    const composition = parseOptionalStringArray(
-      lighting_and_composition_options.composition
-    );
-
-    lighting_and_composition = {};
-
-    if (lightingStyles) {
-      lighting_and_composition.lightingStyles = lightingStyles;
-    }
-
-    if (composition) {
-      lighting_and_composition.composition = composition;
-    }
+  const cinematicControls = parseCinematicControlSelections(
+    cinematic_control_options
+  );
+  if (!cinematicControls.ok) {
+    return cinematicControls;
   }
 
   const payload: VideoPlanPayload = {
@@ -221,7 +203,7 @@ function parseVideoPlanPayload(value: unknown): ValidationResult {
     visual_style: visual_style as VideoPlanPayload["visual_style"],
     aspect_ratio: aspect_ratio as VideoPlanPayload["aspect_ratio"],
     mood_profile: parseNullableString(mood_profile),
-    lighting_and_composition_options: lighting_and_composition,
+    cinematic_control_options: cinematicControls.value,
   };
 
   return { ok: true, value: payload };
@@ -237,6 +219,13 @@ function parseLoopSequencePayload(value: unknown): ValidationResult {
     start_frame_description,
     loop_length = null,
     mood_profile = null,
+    cameraAngles: cameraAnglesRaw,
+    shotSizes: shotSizesRaw,
+    composition: compositionRaw,
+    cameraMovement: cameraMovementRaw,
+    lightingStyles: lightingStylesRaw,
+    colorPalettes: colorPalettesRaw,
+    atmosphere: atmosphereRaw,
   } = value as UnknownRecord;
 
   if (!isNonEmptyString(vision_seed_text)) {
@@ -261,6 +250,41 @@ function parseLoopSequencePayload(value: unknown): ValidationResult {
     loop_length: parsedLoopLength,
     mood_profile: parseNullableString(mood_profile),
   };
+
+  const cameraAngles = parseOptionalStringArray(cameraAnglesRaw);
+  if (cameraAngles && cameraAngles.length > 0) {
+    payload.cameraAngles = cameraAngles;
+  }
+
+  const shotSizes = parseOptionalStringArray(shotSizesRaw);
+  if (shotSizes && shotSizes.length > 0) {
+    payload.shotSizes = shotSizes;
+  }
+
+  const composition = parseOptionalStringArray(compositionRaw);
+  if (composition && composition.length > 0) {
+    payload.composition = composition;
+  }
+
+  const cameraMovement = parseOptionalStringArray(cameraMovementRaw);
+  if (cameraMovement && cameraMovement.length > 0) {
+    payload.cameraMovement = cameraMovement;
+  }
+
+  const lightingStyles = parseOptionalStringArray(lightingStylesRaw);
+  if (lightingStyles && lightingStyles.length > 0) {
+    payload.lightingStyles = lightingStyles;
+  }
+
+  const colorPalettes = parseOptionalStringArray(colorPalettesRaw);
+  if (colorPalettes && colorPalettes.length > 0) {
+    payload.colorPalettes = colorPalettes;
+  }
+
+  const atmosphere = parseOptionalStringArray(atmosphereRaw);
+  if (atmosphere && atmosphere.length > 0) {
+    payload.atmosphere = atmosphere;
+  }
 
   return { ok: true, value: payload };
 }
@@ -300,6 +324,44 @@ function parseSelections(value: unknown):
   }
 
   return { ok: true, value: selections };
+}
+
+function parseCinematicControlSelections(value: unknown):
+  | { ok: true; value: VideoPlanPayload["cinematic_control_options"] }
+  | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+
+  if (!isRecord(value)) {
+    return { ok: false, error: "cinematic_control_options must be an object" };
+  }
+
+  const keys: Array<
+    keyof NonNullable<VideoPlanPayload["cinematic_control_options"]>
+  > = [
+    "cameraAngles",
+    "shotSizes",
+    "composition",
+    "cameraMovement",
+    "lightingStyles",
+    "colorPalettes",
+    "atmosphere",
+  ];
+
+  const selections: NonNullable<VideoPlanPayload["cinematic_control_options"]> = {};
+
+  for (const key of keys) {
+    const list = parseOptionalStringArray(value[key]);
+    if (list && list.length > 0) {
+      selections[key] = list;
+    }
+  }
+
+  return {
+    ok: true,
+    value: Object.keys(selections).length ? selections : undefined,
+  };
 }
 
 function parseOptionalStringArray(value: unknown): string[] | undefined {

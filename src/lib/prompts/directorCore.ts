@@ -194,7 +194,15 @@ INPUT SHAPE:
   "visual_style": "realistic" | "stylized" | "anime" | "mixed-media",
   "aspect_ratio": "16:9" | "9:16",
   "mood_profile": string | null,
-  "lighting_and_composition_options": { ...optional ids from glossary... }
+  "cinematic_control_options": {
+    "cameraAngles"?: string[],
+    "shotSizes"?: string[],
+    "composition"?: string[],
+    "cameraMovement"?: string[],
+    "lightingStyles"?: string[],
+    "colorPalettes"?: string[],
+    "atmosphere"?: string[]
+  }
 }
 Plus optional inspiration images/video references.
 
@@ -263,7 +271,14 @@ INPUT SHAPE:
   "vision_seed_text": string,
   "start_frame_description": string,
   "loop_length": number | null,
-  "mood_profile": string | null
+  "mood_profile": string | null,
+  "cameraAngles"?: string[],
+  "shotSizes"?: string[],
+  "composition"?: string[],
+  "cameraMovement"?: string[],
+  "lightingStyles"?: string[],
+  "colorPalettes"?: string[],
+  "atmosphere"?: string[]
 }
 Plus optional start images.
 

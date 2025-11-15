@@ -13,6 +13,7 @@ import {
   cameraMovement,
   colorPalettes,
   composition,
+  findVisualSnippets,
   lightingStyles,
   shotSizes,
   type VisualOption,
@@ -44,6 +45,19 @@ const optionGroups: Array<{
   { key: "atmosphere", label: "Atmosphere & effects", options: atmosphere },
 ];
 
+const visualOptionLists: Record<
+  keyof ImagePromptPayload["selectedOptions"],
+  VisualOption[]
+> = {
+  cameraAngles,
+  shotSizes,
+  composition,
+  cameraMovement,
+  lightingStyles,
+  colorPalettes,
+  atmosphere,
+};
+
 export default function ImageBuilderPage() {
   const [subjectFocus, setSubjectFocus] = useState("");
   const [environment, setEnvironment] = useState("");
@@ -72,7 +86,7 @@ export default function ImageBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PromptSections | null>(null);
 
-  const visionSeedText = useMemo(() => {
+  const manualVisionSeedText = useMemo(() => {
     const sections = [
       { label: "Subject focus", value: subjectFocus },
       { label: "Environment & world", value: environment },
@@ -98,7 +112,29 @@ export default function ImageBuilderPage() {
     symbolismNotes,
   ]);
 
-  const canSubmit = visionSeedText.trim().length > 0 && !isSubmitting;
+  const selectedVisualOptions = useMemo(() => {
+    return (Object.entries(selectedOptions) as Array<
+      [keyof ImagePromptPayload["selectedOptions"], string[]]
+    >).flatMap(([key, ids]) => findVisualSnippets(visualOptionLists[key], ids));
+  }, [selectedOptions]);
+
+  const trimmedManualVisionSeedText = manualVisionSeedText.trim();
+
+  const fallbackVisionSeedText = selectedVisualOptions
+    .map((option) => `${option.label}: ${option.promptSnippet}`)
+    .join("\n");
+
+  const visionSeedText =
+    trimmedManualVisionSeedText.length > 0
+      ? trimmedManualVisionSeedText
+      : fallbackVisionSeedText;
+
+  const hasSeedContent =
+    trimmedManualVisionSeedText.length > 0 ||
+    selectedVisualOptions.length > 0 ||
+    files.length > 0;
+
+  const canSubmit = hasSeedContent && !isSubmitting;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
