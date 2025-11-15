@@ -1,29 +1,26 @@
-export type ImagePromptMode = "image_prompt";
-export type VideoPlanMode = "video_plan";
-export type LoopSequenceMode = "loop_sequence";
+export type VisualSelectionMap = {
+  cameraAngles: string[];
+  shotSizes: string[];
+  composition: string[];
+  cameraMovement: string[];
+  lightingStyles: string[];
+  colorPalettes: string[];
+  atmosphere: string[];
+};
 
-export type DirectorMode =
-  | ImagePromptMode
-  | VideoPlanMode
-  | LoopSequenceMode;
+export type ImagePromptDirectorRequest = {
+  type: "image_prompt";
+  visionSeedText: string;
+  modelChoice: "sdxl" | "flux" | "illustrious";
+  selectedOptions: VisualSelectionMap;
+};
+
+export type ImagePromptDirectorRequest = {
+  mode: "image_prompt";
+  payload: ImagePromptPayload;
+};
 
 export type AspectRatio = "16:9" | "9:16";
-
-export type ImageGenerationModel = "sdxl" | "flux" | "illustrious";
-
-export interface ImagePromptDirectorRequest {
-  mode: ImagePromptMode;
-  visionSeedText: string;
-  modelChoice: ImageGenerationModel;
-  cameraAngleId?: string;
-  shotSizeId?: string;
-  compositionTechniqueId?: string;
-  lightingVocabularyId?: string;
-  colorPaletteId?: string;
-  motionCueIds?: string[];
-  stylePackIds?: string[];
-  images?: string[];
-}
 
 export interface SceneJSON {
   id: string;
@@ -35,21 +32,31 @@ export interface SceneJSON {
 export interface SceneAnswerPayload {
   sceneId: string;
   answer: string;
-}
+};
 
-export interface VisionSeedPayload {
-  scriptText: string;
-  tone: string;
-  palette: string;
-  references: string[];
-  aspectRatio: AspectRatio;
-}
+export type LoopSequencePayload = {
+  loopSeedText: string;
+  durationSeconds?: number;
+  aspectRatio?: AspectRatio | "1:1";
+  vibe?: string;
+  references?: string[];
+};
 
-export interface VideoPlanDirectorRequest {
-  mode: VideoPlanMode;
-  visionSeed: VisionSeedPayload;
-  segmentation?: SceneJSON[];
-  sceneAnswers?: SceneAnswerPayload[];
+export type LoopSequenceDirectorRequest = {
+  mode: "loop_sequence";
+  payload: LoopSequencePayload;
+};
+
+export type VideoPlanPayload = {
+  visionSeed: {
+    scriptText: string;
+    tone: string;
+    palette: string;
+    references: string[];
+    aspectRatio: AspectRatio;
+  };
+  segmentation?: SceneDraft[];
+  sceneAnswers?: SceneAnswer[];
   directRender?: boolean;
   finalPlanOverride?: unknown;
   images?: string[];
@@ -174,6 +181,11 @@ export interface LoopSequenceDirectorRequest {
   includeMoodProfile?: boolean;
   images?: string[];
 }
+
+export type VideoPlanDirectorRequest = {
+  mode: "video_plan";
+  payload: VideoPlanPayload;
+};
 
 export type DirectorRequest =
   | ImagePromptDirectorRequest
