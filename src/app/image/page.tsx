@@ -5,8 +5,11 @@ import { CopyButton } from "@/components/copy-button";
 import {
   cameraAngles,
   shotSizes,
-  lightingStyles,
+  compositionTechniques,
+  lightingVocabulary,
   colorPalettes,
+  motionCues,
+  stylePacks,
   VisualOption,
 } from "@/lib/visualOptions";
 
@@ -62,8 +65,11 @@ type SeedRequestPayload = {
   modelChoice: ModelChoice;
   cameraAngleId?: string;
   shotSizeId?: string;
-  lightingStyleId?: string;
+  compositionTechniqueId?: string;
+  lightingVocabularyId?: string;
   colorPaletteId?: string;
+  motionCueIds?: string[];
+  stylePackIds?: string[];
 };
 
 type ConfirmRequestPayload = {
@@ -103,8 +109,11 @@ export default function ImagePromptBuilderPage() {
   const [modelChoice, setModelChoice] = useState<ModelChoice>("sdxl");
   const [cameraAngleId, setCameraAngleId] = useState<string>("");
   const [shotSizeId, setShotSizeId] = useState<string>("");
-  const [lightingStyleId, setLightingStyleId] = useState<string>("");
+  const [compositionTechniqueId, setCompositionTechniqueId] = useState<string>("");
+  const [lightingVocabularyId, setLightingVocabularyId] = useState<string>("");
   const [colorPaletteId, setColorPaletteId] = useState<string>("");
+  const [motionCueIds, setMotionCueIds] = useState<string[]>([]);
+  const [stylePackIds, setStylePackIds] = useState<string[]>([]);
   const [summary, setSummary] = useState("");
   const [summaryFeedback, setSummaryFeedback] = useState("");
   const [moodMemory, setMoodMemory] = useState("");
@@ -126,8 +135,11 @@ export default function ImagePromptBuilderPage() {
     setModelChoice("sdxl");
     setCameraAngleId("");
     setShotSizeId("");
-    setLightingStyleId("");
+    setCompositionTechniqueId("");
+    setLightingVocabularyId("");
     setColorPaletteId("");
+    setMotionCueIds([]);
+    setStylePackIds([]);
     setSummary("");
     setSummaryFeedback("");
     setMoodMemory("");
@@ -171,8 +183,11 @@ export default function ImagePromptBuilderPage() {
         modelChoice,
         cameraAngleId: cameraAngleId || undefined,
         shotSizeId: shotSizeId || undefined,
-        lightingStyleId: lightingStyleId || undefined,
+        compositionTechniqueId: compositionTechniqueId || undefined,
+        lightingVocabularyId: lightingVocabularyId || undefined,
         colorPaletteId: colorPaletteId || undefined,
+        motionCueIds: motionCueIds.length > 0 ? motionCueIds : undefined,
+        stylePackIds: stylePackIds.length > 0 ? stylePackIds : undefined,
       });
 
       if (data.stage !== "seed") {
@@ -402,16 +417,34 @@ export default function ImagePromptBuilderPage() {
                 onChange={setShotSizeId}
               />
               <VisualSelect
+                label="Composition approach"
+                options={compositionTechniques}
+                value={compositionTechniqueId}
+                onChange={setCompositionTechniqueId}
+              />
+              <VisualSelect
                 label="Lighting style"
-                options={lightingStyles}
-                value={lightingStyleId}
-                onChange={setLightingStyleId}
+                options={lightingVocabulary}
+                value={lightingVocabularyId}
+                onChange={setLightingVocabularyId}
               />
               <VisualSelect
                 label="Color mood / palette"
                 options={colorPalettes}
                 value={colorPaletteId}
                 onChange={setColorPaletteId}
+              />
+              <VisualMultiSelect
+                label="Motion cues"
+                options={motionCues}
+                values={motionCueIds}
+                onChange={setMotionCueIds}
+              />
+              <VisualMultiSelect
+                label="Style packs"
+                options={stylePacks}
+                values={stylePackIds}
+                onChange={setStylePackIds}
               />
             </fieldset>
 
@@ -656,6 +689,58 @@ function VisualSelect({ label, options, value, onChange }: VisualSelectProps) {
         </p>
       )}
     </label>
+  );
+}
+
+type VisualMultiSelectProps = {
+  label: string;
+  options: VisualOption[];
+  values: string[];
+  onChange: (values: string[]) => void;
+};
+
+function VisualMultiSelect({ label, options, values, onChange }: VisualMultiSelectProps) {
+  function toggleValue(id: string) {
+    if (values.includes(id)) {
+      onChange(values.filter((value) => value !== id));
+    } else {
+      onChange([...values, id]);
+    }
+  }
+
+  return (
+    <fieldset className="block text-sm">
+      <legend className="mb-2 inline-flex items-center gap-2 font-medium text-slate-200">
+        {label}
+        <span className="text-xs font-normal text-slate-400">(optional)</span>
+      </legend>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {options.map((option) => {
+          const checked = values.includes(option.id);
+          return (
+            <label
+              key={option.id}
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition ${
+                checked
+                  ? "border-canvas-accent/70 bg-canvas-accent/10"
+                  : "border-white/10 bg-slate-950/40 hover:border-white/20"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggleValue(option.id)}
+                className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-900 text-canvas-accent focus:ring-canvas-accent"
+              />
+              <span className="space-y-1">
+                <span className="block text-sm font-medium text-slate-100">{option.label}</span>
+                <span className="block text-xs text-slate-400">{option.tooltip}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 

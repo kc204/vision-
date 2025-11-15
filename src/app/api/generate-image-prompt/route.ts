@@ -4,9 +4,13 @@ import OpenAI from "openai";
 import {
   cameraAngles,
   shotSizes,
-  lightingStyles,
+  compositionTechniques,
+  lightingVocabulary,
   colorPalettes,
+  motionCues,
+  stylePacks,
   findVisualSnippet,
+  findVisualSnippets,
 } from "@/lib/visualOptions";
 
 type ModelChoice = "sdxl" | "flux" | "illustrious";
@@ -17,8 +21,11 @@ type SeedRequest = {
   modelChoice: ModelChoice;
   cameraAngleId?: string;
   shotSizeId?: string;
-  lightingStyleId?: string;
+  compositionTechniqueId?: string;
+  lightingVocabularyId?: string;
   colorPaletteId?: string;
+  motionCueIds?: string[];
+  stylePackIds?: string[];
 };
 
 type ConfirmRequest = {
@@ -48,8 +55,11 @@ type ConversationContext = {
   modelChoice?: ModelChoice;
   cameraSnippet?: string;
   shotSnippet?: string;
+  compositionSnippet?: string;
   lightingSnippet?: string;
   colorSnippet?: string;
+  motionSnippet?: string;
+  styleSnippet?: string;
   summary?: string;
   summaryConfirmed?: boolean;
   refinementCommands: string[];
@@ -161,14 +171,32 @@ export async function POST(request: Request) {
           body.cameraAngleId
         )?.promptSnippet;
         const shotSnippet = findVisualSnippet(shotSizes, body.shotSizeId)?.promptSnippet;
+        const compositionSnippet = findVisualSnippet(
+          compositionTechniques,
+          body.compositionTechniqueId
+        )?.promptSnippet;
         const lightingSnippet = findVisualSnippet(
-          lightingStyles,
-          body.lightingStyleId
+          lightingVocabulary,
+          body.lightingVocabularyId
         )?.promptSnippet;
         const colorSnippet = findVisualSnippet(
           colorPalettes,
           body.colorPaletteId
         )?.promptSnippet;
+        const motionOptions = findVisualSnippets(motionCues, body.motionCueIds);
+        const styleOptions = findVisualSnippets(stylePacks, body.stylePackIds);
+        const motionSnippet =
+          motionOptions.length > 0
+            ? motionOptions
+                .map((option) => `${option.label}: ${option.promptSnippet}`)
+                .join("; ")
+            : undefined;
+        const styleSnippet =
+          styleOptions.length > 0
+            ? styleOptions
+                .map((option) => `${option.label}: ${option.promptSnippet}`)
+                .join("; ")
+            : undefined;
 
         const completion = await openai.chat.completions.create({
           model: MODEL,
@@ -181,8 +209,11 @@ export async function POST(request: Request) {
                 modelChoice: body.modelChoice,
                 cameraSnippet,
                 shotSnippet,
+                compositionSnippet,
                 lightingSnippet,
                 colorSnippet,
+                motionSnippet,
+                styleSnippet,
               }),
             },
           ],
@@ -205,8 +236,11 @@ export async function POST(request: Request) {
           modelChoice: body.modelChoice,
           cameraSnippet,
           shotSnippet,
+          compositionSnippet,
           lightingSnippet,
           colorSnippet,
+          motionSnippet,
+          styleSnippet,
           summary,
           summaryConfirmed: false,
           refinementCommands: [],
@@ -260,8 +294,11 @@ export async function POST(request: Request) {
                 feedback: body.feedback,
                 cameraSnippet: context.cameraSnippet,
                 shotSnippet: context.shotSnippet,
+                compositionSnippet: context.compositionSnippet,
                 lightingSnippet: context.lightingSnippet,
                 colorSnippet: context.colorSnippet,
+                motionSnippet: context.motionSnippet,
+                styleSnippet: context.styleSnippet,
               }),
             },
           ],
@@ -339,8 +376,11 @@ export async function POST(request: Request) {
                 refinementCommands: context.refinementCommands,
                 cameraSnippet: context.cameraSnippet,
                 shotSnippet: context.shotSnippet,
+                compositionSnippet: context.compositionSnippet,
                 lightingSnippet: context.lightingSnippet,
                 colorSnippet: context.colorSnippet,
+                motionSnippet: context.motionSnippet,
+                styleSnippet: context.styleSnippet,
               }),
             },
           ],
@@ -402,15 +442,21 @@ function buildSeedUserPrompt({
   modelChoice,
   cameraSnippet,
   shotSnippet,
+  compositionSnippet,
   lightingSnippet,
   colorSnippet,
+  motionSnippet,
+  styleSnippet,
 }: {
   visionSeedText: string;
   modelChoice: ModelChoice;
   cameraSnippet?: string;
   shotSnippet?: string;
+  compositionSnippet?: string;
   lightingSnippet?: string;
   colorSnippet?: string;
+  motionSnippet?: string;
+  styleSnippet?: string;
 }) {
   return [
     "STAGE: seed",
@@ -420,8 +466,11 @@ function buildSeedUserPrompt({
     "VISUAL PREFERENCES:",
     `Camera angle: ${cameraSnippet ?? "none specified"}`,
     `Shot size: ${shotSnippet ?? "none specified"}`,
+    `Composition: ${compositionSnippet ?? "none specified"}`,
     `Lighting: ${lightingSnippet ?? "none specified"}`,
     `Color palette: ${colorSnippet ?? "none specified"}`,
+    `Motion cues: ${motionSnippet ?? "none specified"}`,
+    `Style packs: ${styleSnippet ?? "none specified"}`,
     "Remember to respond with Summary: and Mood Memory: sections only.",
   ].join("\n\n");
 }
@@ -433,8 +482,11 @@ function buildConfirmUserPrompt({
   feedback,
   cameraSnippet,
   shotSnippet,
+  compositionSnippet,
   lightingSnippet,
   colorSnippet,
+  motionSnippet,
+  styleSnippet,
 }: {
   visionSeedText: string;
   modelChoice?: ModelChoice;
@@ -442,8 +494,11 @@ function buildConfirmUserPrompt({
   feedback: string;
   cameraSnippet?: string;
   shotSnippet?: string;
+  compositionSnippet?: string;
   lightingSnippet?: string;
   colorSnippet?: string;
+  motionSnippet?: string;
+  styleSnippet?: string;
 }) {
   return [
     "STAGE: confirm",
@@ -457,8 +512,11 @@ function buildConfirmUserPrompt({
     "VISUAL PREFERENCES:",
     `Camera angle: ${cameraSnippet ?? "none specified"}`,
     `Shot size: ${shotSnippet ?? "none specified"}`,
+    `Composition: ${compositionSnippet ?? "none specified"}`,
     `Lighting: ${lightingSnippet ?? "none specified"}`,
     `Color palette: ${colorSnippet ?? "none specified"}`,
+    `Motion cues: ${motionSnippet ?? "none specified"}`,
+    `Style packs: ${styleSnippet ?? "none specified"}`,
     "Return only Summary: and Mood Memory: sections.",
   ]
     .filter(Boolean)
@@ -473,8 +531,11 @@ function buildGenerateUserPrompt({
   refinementCommands,
   cameraSnippet,
   shotSnippet,
+  compositionSnippet,
   lightingSnippet,
   colorSnippet,
+  motionSnippet,
+  styleSnippet,
 }: {
   modelChoice: ModelChoice;
   visionSeedText: string;
@@ -483,8 +544,11 @@ function buildGenerateUserPrompt({
   refinementCommands: string[];
   cameraSnippet?: string;
   shotSnippet?: string;
+  compositionSnippet?: string;
   lightingSnippet?: string;
   colorSnippet?: string;
+  motionSnippet?: string;
+  styleSnippet?: string;
 }) {
   const refinementBlock =
     refinementCommands.length > 0
@@ -505,8 +569,11 @@ function buildGenerateUserPrompt({
     "VISUAL PREFERENCES:",
     `Camera angle: ${cameraSnippet ?? "none specified"}`,
     `Shot size: ${shotSnippet ?? "none specified"}`,
+    `Composition: ${compositionSnippet ?? "none specified"}`,
     `Lighting: ${lightingSnippet ?? "none specified"}`,
     `Color palette: ${colorSnippet ?? "none specified"}`,
+    `Motion cues: ${motionSnippet ?? "none specified"}`,
+    `Style packs: ${styleSnippet ?? "none specified"}`,
     "Respond with sections in this order: Positive Prompt:, Negative Prompt:, Settings:, Summary:, Mood Memory:. Each section must begin with that exact heading.",
   ].join("\n\n");
 }

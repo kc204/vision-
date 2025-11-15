@@ -71,7 +71,40 @@ export const shotSizes: VisualOption[] = [
   },
 ];
 
-export const lightingStyles: VisualOption[] = [
+export const compositionTechniques: VisualOption[] = [
+  {
+    id: "rule_of_thirds",
+    label: "Rule of thirds",
+    tooltip: "Subject sits on a third-line for balanced storytelling.",
+    promptSnippet: "rule of thirds composition, subject aligned on intersecting grid lines",
+  },
+  {
+    id: "centered_symmetry",
+    label: "Centered symmetry",
+    tooltip: "Perfectly centered subject with mirrored elements for calm focus.",
+    promptSnippet: "centered symmetrical composition, mirrored balance, calm focus",
+  },
+  {
+    id: "leading_lines",
+    label: "Leading lines",
+    tooltip: "Strong lines guide the viewer’s eye toward the subject.",
+    promptSnippet: "leading lines guiding the eye directly toward the hero subject",
+  },
+  {
+    id: "foreground_depth",
+    label: "Foreground depth",
+    tooltip: "Foreground elements frame the subject and add depth.",
+    promptSnippet: "foreground framing elements adding depth and dimensional layering",
+  },
+  {
+    id: "negative_space",
+    label: "Negative space",
+    tooltip: "Minimalist scene with generous breathing room around the subject.",
+    promptSnippet: "negative space composition, minimalist framing emphasizing the subject",
+  },
+];
+
+export const lightingVocabulary: VisualOption[] = [
   {
     id: "soft_diffuse",
     label: "Soft diffuse",
@@ -109,6 +142,9 @@ export const lightingStyles: VisualOption[] = [
     promptSnippet: "noir-inspired lighting, stark black and white, dramatic chiaroscuro",
   },
 ];
+
+// Maintain backward compatibility with older imports.
+export const lightingStyles = lightingVocabulary;
 
 export const colorPalettes: VisualOption[] = [
   {
@@ -149,10 +185,82 @@ export const colorPalettes: VisualOption[] = [
   },
 ];
 
+export const motionCues: VisualOption[] = [
+  {
+    id: "dynamic_pan",
+    label: "Dynamic pan",
+    tooltip: "Subtle lateral motion suggesting the camera gliding past the scene.",
+    promptSnippet: "dynamic lateral pan motion blur, camera gliding past the scene",
+  },
+  {
+    id: "slow_drift",
+    label: "Slow drift",
+    tooltip: "Gentle floating particles or camera drift for dreamlike energy.",
+    promptSnippet: "slow drifting particles suspended in the air, gentle camera float",
+  },
+  {
+    id: "burst_of_action",
+    label: "Burst of action",
+    tooltip: "Frozen motion mid-action, conveying high energy and urgency.",
+    promptSnippet: "burst of action captured mid-motion, kinetic energy and urgency",
+  },
+  {
+    id: "wind_sweep",
+    label: "Wind sweep",
+    tooltip: "Flowing fabrics or foliage whipped by wind for directional motion.",
+    promptSnippet: "wind-swept fabrics and foliage, directional motion through the frame",
+  },
+];
+
+export const stylePacks: VisualOption[] = [
+  {
+    id: "arthouse_film",
+    label: "Arthouse film",
+    tooltip: "Moody, grainy, and poetic—think boutique cinema stills.",
+    promptSnippet: "arthouse cinema aesthetic, subtle grain, poetic atmosphere",
+  },
+  {
+    id: "retro_scifi",
+    label: "Retro sci-fi",
+    tooltip: "Analog futurism with glowing panels and retro technology.",
+    promptSnippet: "retro sci-fi aesthetic, analog futurism, glowing control panels",
+  },
+  {
+    id: "storybook_painterly",
+    label: "Storybook painterly",
+    tooltip: "Illustrative brushwork with softly blended colors and whimsy.",
+    promptSnippet: "storybook painterly style, expressive brushwork, soft blended colors",
+  },
+  {
+    id: "high_fashion",
+    label: "High fashion editorial",
+    tooltip: "Glossy magazine lighting, couture styling, and dramatic posing.",
+    promptSnippet: "high fashion editorial styling, couture wardrobe, dramatic posing",
+  },
+  {
+    id: "neo_noir",
+    label: "Neo-noir",
+    tooltip: "Rain-slick streets, neon reflections, and brooding contrast.",
+    promptSnippet: "neo-noir mood, rain-slick streets, neon reflections, brooding contrast",
+  },
+];
+
 export function findVisualSnippet(
   list: VisualOption[],
   id?: string
 ): VisualOption | undefined {
   if (!id) return undefined;
   return list.find((option) => option.id === id);
+}
+
+export function findVisualSnippets(
+  list: VisualOption[],
+  ids?: string[]
+): VisualOption[] {
+  if (!ids || ids.length === 0) {
+    return [];
+  }
+
+  const idSet = new Set(ids);
+  return list.filter((option) => idSet.has(option.id));
 }
