@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
   DirectorRequest,
@@ -15,6 +14,12 @@ type UnknownRecord = Record<string, unknown>;
 type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
+
+type ProviderKeyBundle = {
+  geminiApiKey?: string;
+  veoApiKey?: string;
+  nanoBananaApiKey?: string;
+};
 
 const REQUIRE_AUTHENTICATED_SESSION = parseEnvBoolean(
   process.env.DIRECTOR_CORE_REQUIRE_API_KEY ?? "true"
@@ -41,22 +46,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await auth();
+  const providerKeys = extractProviderKeys(request, body, validation.value.mode);
   const credentials: DirectorProviderCredentials = {};
 
-  const googleAccessToken = session?.providerTokens?.google?.accessToken;
-  if (googleAccessToken) {
-    credentials.google = { accessToken: googleAccessToken };
+  if (providerKeys.geminiApiKey) {
+    credentials.gemini = { apiKey: providerKeys.geminiApiKey };
   }
 
-  const nanoBananaKey = session?.providerTokens?.nanoBanana?.apiKey;
-  if (nanoBananaKey) {
-    credentials.nanoBanana = { apiKey: nanoBananaKey };
+  if (providerKeys.veoApiKey) {
+    credentials.veo = { apiKey: providerKeys.veoApiKey };
   }
 
-  if (REQUIRE_AUTHENTICATED_SESSION && !credentials.google) {
+  if (providerKeys.nanoBananaApiKey) {
+    credentials.nanoBanana = { apiKey: providerKeys.nanoBananaApiKey };
+  }
+
+  if (
+    REQUIRE_AUTHENTICATED_SESSION &&
+    !hasRequiredProviderKey(validation.value.mode, providerKeys)
+  ) {
     return NextResponse.json(
-      { error: "Sign in with Google to access Director Core." },
+      { error: getMissingKeyMessage(validation.value.mode) },
       { status: 401 }
     );
   }
@@ -84,6 +94,184 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function extractProviderKeys(
+  request: Request,
+  body: unknown,
+  mode: DirectorRequest["mode"]
+): ProviderKeyBundle {
+  const keys: ProviderKeyBundle = {};
+
+  if (isRecord(body)) {
+    assignProviderKeysFromRecord(keys, body);
+
+    const providerKeys = body.providerKeys;
+    if (isRecord(providerKeys)) {
+      assignProviderKeysFromRecord(keys, providerKeys);
+    }
+
+    const provider = body.provider;
+    if (isRecord(provider)) {
+      assignProviderKeysFromRecord(keys, provider);
+    }
+
+    const generalBodyKey =
+      normalizeApiKey(body.providerApiKey) ?? normalizeApiKey(body.apiKey);
+    if (generalBodyKey) {
+      assignKeyForMode(keys, mode, generalBodyKey);
+    }
+  }
+
+  const headerKey = normalizeApiKey(request.headers.get("x-provider-api-key"));
+  if (headerKey) {
+    assignKeyForMode(keys, mode, headerKey);
+  }
+
+  return keys;
+}
+
+function assignProviderKeysFromRecord(
+  target: ProviderKeyBundle,
+  source: UnknownRecord
+) {
+  if (!target.geminiApiKey) {
+    const geminiKey = findFirstKey(source, [
+      "gemini",
+      "geminiApiKey",
+      "gemini_api_key",
+      "google",
+      "googleApiKey",
+      "google_api_key",
+    ]);
+    if (geminiKey) {
+      target.geminiApiKey = geminiKey;
+    }
+  }
+
+  if (!target.veoApiKey) {
+    const veoKey = findFirstKey(source, [
+      "veo",
+      "veoApiKey",
+      "veo_api_key",
+      "video",
+      "videoApiKey",
+      "video_api_key",
+    ]);
+    if (veoKey) {
+      target.veoApiKey = veoKey;
+    }
+  }
+
+  if (!target.nanoBananaApiKey) {
+    const nanoKey = findFirstKey(source, [
+      "nanoBanana",
+      "nano_banana",
+      "nanoBananaApiKey",
+      "nano_banana_api_key",
+      "loop",
+      "loopApiKey",
+      "loop_api_key",
+    ]);
+    if (nanoKey) {
+      target.nanoBananaApiKey = nanoKey;
+    }
+  }
+}
+
+function assignKeyForMode(
+  target: ProviderKeyBundle,
+  mode: DirectorRequest["mode"],
+  value: string
+) {
+  switch (mode) {
+    case "loop_sequence":
+      if (!target.nanoBananaApiKey) {
+        target.nanoBananaApiKey = value;
+      }
+      break;
+    case "video_plan":
+      if (!target.veoApiKey) {
+        target.veoApiKey = value;
+      }
+      break;
+    case "image_prompt":
+    default:
+      if (!target.geminiApiKey) {
+        target.geminiApiKey = value;
+      }
+      break;
+  }
+}
+
+function findFirstKey(
+  source: UnknownRecord,
+  keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    if (key in source) {
+      const value = normalizeApiKey(source[key]);
+      if (value) {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+function normalizeApiKey(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  return undefined;
+}
+
+function hasRequiredProviderKey(
+  mode: DirectorRequest["mode"],
+  providerKeys: ProviderKeyBundle
+): boolean {
+  switch (mode) {
+    case "loop_sequence":
+      return Boolean(
+        providerKeys.nanoBananaApiKey ?? getEnvApiKey(process.env.NANO_BANANA_API_KEY)
+      );
+    case "video_plan":
+      return Boolean(
+        providerKeys.veoApiKey ??
+          getEnvApiKey(process.env.VEO_API_KEY) ??
+          getEnvApiKey(process.env.GEMINI_API_KEY) ??
+          getEnvApiKey(process.env.GOOGLE_API_KEY)
+      );
+    case "image_prompt":
+    default:
+      return Boolean(
+        providerKeys.geminiApiKey ??
+          getEnvApiKey(process.env.GEMINI_API_KEY) ??
+          getEnvApiKey(process.env.GOOGLE_API_KEY)
+      );
+  }
+}
+
+function getMissingKeyMessage(mode: DirectorRequest["mode"]): string {
+  switch (mode) {
+    case "loop_sequence":
+      return "Provide a Nano Banana API key via the request or set NANO_BANANA_API_KEY.";
+    case "video_plan":
+      return "Provide a Veo API key via the request or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.";
+    case "image_prompt":
+    default:
+      return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
+  }
+}
+
+function getEnvApiKey(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function isDirectorCoreError(result: DirectorCoreResult): result is Extract<
