@@ -37,6 +37,12 @@ export default function RootLayout({
               >
                 YouTube Cinematic Director
               </Link>
+              <Link
+                href="/loop"
+                className="hover:text-white"
+              >
+                Autonomous Loop Director
+              </Link>
             </nav>
           </div>
         </header>
