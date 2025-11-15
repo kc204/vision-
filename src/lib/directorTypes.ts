@@ -60,6 +60,45 @@ export type DirectorRequest =
   | { mode: "video_plan"; payload: VideoPlanPayload; images?: string[] }
   | { mode: "loop_sequence"; payload: LoopSequencePayload; images?: string[] };
 
+export type DirectorGeneratedImage = {
+  buffer: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type DirectorGeneratedVideo = {
+  url: string;
+  thumbnailUrl?: string;
+  durationSeconds?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type DirectorGeneratedMedia = {
+  images?: DirectorGeneratedImage[];
+  videos?: DirectorGeneratedVideo[];
+  metadata?: Record<string, unknown>;
+};
+
+export type DirectorCoreResult = {
+  promptText?: string;
+  media?: DirectorGeneratedMedia;
+  warnings?: string[];
+  fallback?: "prompt-only";
+};
+
+export type DirectorCoreOptions = {
+  apiKey?: string;
+};
+
+export type DirectorCoreErrorCode =
+  | "PROVIDER_ERROR"
+  | "MEDIA_GENERATION_FAILED"
+  | "PROMPT_FALLBACK"
+  | "UNIMPLEMENTED"
+  | "UNKNOWN";
+
 export type SceneJSON = {
   segment_title: string;
   scene_description: string;

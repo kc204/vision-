@@ -1,5 +1,39 @@
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
-import type { DirectorRequest } from "./directorTypes";
+import type {
+  DirectorCoreOptions,
+  DirectorCoreResult,
+  DirectorRequest,
+  DirectorCoreErrorCode,
+} from "./directorTypes";
+
+export class DirectorCoreError extends Error {
+  readonly code: DirectorCoreErrorCode;
+  readonly status: number;
+  readonly details?: unknown;
+  readonly fallbackResult?: DirectorCoreResult;
+
+  constructor(
+    message: string,
+    options?: {
+      code?: DirectorCoreErrorCode;
+      status?: number;
+      details?: unknown;
+      cause?: unknown;
+      fallbackResult?: DirectorCoreResult;
+    }
+  ) {
+    super(message);
+    this.name = "DirectorCoreError";
+    this.code = options?.code ?? "UNKNOWN";
+    this.status = options?.status ?? 500;
+    this.details = options?.details;
+    this.fallbackResult = options?.fallbackResult;
+    if (options?.cause) {
+      // Preserve the underlying error for debugging while keeping the response sanitized.
+      this.cause = options.cause;
+    }
+  }
+}
 
 // TODO: Replace this placeholder implementation with Gemini API calls.
 // When wiring up Gemini, use the official `@google/generative-ai` client and send the
@@ -13,9 +47,13 @@ import type { DirectorRequest } from "./directorTypes";
 // ]);
 // return result.response.text();
 
-export async function callDirectorCore(_req: DirectorRequest): Promise<string> {
+export async function callDirectorCore(
+  _req: DirectorRequest,
+  _options?: DirectorCoreOptions
+): Promise<DirectorCoreResult> {
   void DIRECTOR_CORE_SYSTEM_PROMPT;
-  throw new Error(
-    "callDirectorCore is not yet implemented with Gemini. Wire this to Gemini text models."
+  throw new DirectorCoreError(
+    "callDirectorCore is not yet implemented with Gemini. Wire this to Gemini text models.",
+    { code: "UNIMPLEMENTED", status: 501 }
   );
 }

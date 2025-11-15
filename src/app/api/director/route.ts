@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { callDirectorCore } from "@/lib/directorClient";
+import { callDirectorCore, DirectorCoreError } from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
   VideoPlanPayload,
   LoopSequencePayload,
+  DirectorCoreResult,
+  DirectorGeneratedMedia,
+  DirectorCoreErrorCode,
 } from "@/lib/directorTypes";
 
 type UnknownRecord = Record<string, unknown>;
@@ -13,6 +16,14 @@ type UnknownRecord = Record<string, unknown>;
 type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
+
+const DIRECTOR_API_KEY_HEADER = "x-director-api-key";
+const REQUIRE_DIRECTOR_API_KEY = parseEnvBoolean(
+  process.env.DIRECTOR_CORE_REQUIRE_API_KEY
+);
+const FALLBACK_DIRECTOR_API_KEY = getNonEmptyString(
+  process.env.DIRECTOR_CORE_API_KEY
+);
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -26,7 +37,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const validation = validateDirectorRequest(body);
+  const bodyRecord = isRecord(body) ? (body as UnknownRecord) : null;
+  const apiKeyFromBody = bodyRecord ? getNonEmptyString(bodyRecord.apiKey) : undefined;
+  const apiKeyFromHeaders = extractApiKeyFromHeaders(request.headers);
+  const apiKey = apiKeyFromHeaders ?? apiKeyFromBody ?? FALLBACK_DIRECTOR_API_KEY;
+
+  if (REQUIRE_DIRECTOR_API_KEY && !apiKey) {
+    return NextResponse.json(
+      { error: "An API key is required to call Director Core." },
+      { status: 401 }
+    );
+  }
+
+  let payloadForValidation: unknown = body;
+
+  if (bodyRecord && "apiKey" in bodyRecord) {
+    const cloned: UnknownRecord = { ...bodyRecord };
+    delete cloned.apiKey;
+    payloadForValidation = cloned;
+  }
+
+  const validation = validateDirectorRequest(payloadForValidation);
 
   if (!validation.ok) {
     return NextResponse.json(
@@ -36,15 +67,251 @@ export async function POST(request: Request) {
   }
 
   try {
-    const text = await callDirectorCore(validation.value);
-    return NextResponse.json({ text });
+    const result = await callDirectorCore(validation.value, { apiKey });
+    const payload = formatSuccessPayload(result);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Director Core invocation failed", error);
+
+    if (error instanceof DirectorCoreError) {
+      const status = error.status ?? resolveStatusFromCode(error.code);
+      const responseBody: UnknownRecord = {
+        error: error.message,
+        code: error.code,
+      };
+
+      const details = sanitizeErrorDetails(error.details);
+      if (details !== undefined) {
+        responseBody.details = details;
+      }
+
+      if (error.fallbackResult) {
+        responseBody.fallback = formatSuccessPayload(error.fallbackResult);
+      }
+
+      return NextResponse.json(responseBody, {
+        status: status ?? 500,
+      });
+    }
+
     return NextResponse.json(
       { error: "Director Core is not yet available" },
       { status: 500 }
     );
   }
+}
+
+function formatSuccessPayload(result: DirectorCoreResult) {
+  const prompt = typeof result.promptText === "string" ? result.promptText : null;
+  const media = normalizeGeneratedMedia(result.media);
+  const warnings = Array.isArray(result.warnings)
+    ? result.warnings
+        .map((item) => (typeof item === "string" ? item : String(item)))
+        .filter((item) => item.trim().length > 0)
+    : [];
+
+  const fallback =
+    result.fallback === "prompt-only" || (!media && prompt)
+      ? "prompt-only"
+      : null;
+
+  return {
+    text: prompt,
+    prompt,
+    media,
+    warnings,
+    fallback,
+  };
+}
+
+function normalizeGeneratedMedia(
+  media: DirectorGeneratedMedia | undefined
+): DirectorGeneratedMedia | null {
+  if (!media || (!media.images && !media.videos && !media.metadata)) {
+    return null;
+  }
+
+  const normalized: DirectorGeneratedMedia = {};
+
+  if (Array.isArray(media.images)) {
+    const images = media.images
+      .map(normalizeGeneratedImage)
+      .filter((image): image is NonNullable<typeof image> => Boolean(image));
+    if (images.length > 0) {
+      normalized.images = images;
+    }
+  }
+
+  if (Array.isArray(media.videos)) {
+    const videos = media.videos
+      .map(normalizeGeneratedVideo)
+      .filter((video): video is NonNullable<typeof video> => Boolean(video));
+    if (videos.length > 0) {
+      normalized.videos = videos;
+    }
+  }
+
+  if (isRecord(media.metadata) && Object.keys(media.metadata).length > 0) {
+    normalized.metadata = media.metadata;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function normalizeGeneratedImage(
+  value: unknown
+): NonNullable<DirectorGeneratedMedia["images"]>[number] | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const buffer = getNonEmptyString(value.buffer);
+  const mimeType = getNonEmptyString(value.mimeType);
+  const width = isFiniteNumber(value.width) ? Number(value.width) : null;
+  const height = isFiniteNumber(value.height) ? Number(value.height) : null;
+
+  if (!buffer || !mimeType || width === null || height === null) {
+    return null;
+  }
+
+  const image: NonNullable<DirectorGeneratedMedia["images"]>[number] = {
+    buffer,
+    mimeType,
+    width,
+    height,
+  };
+
+  if (isRecord(value.metadata) && Object.keys(value.metadata).length > 0) {
+    image.metadata = value.metadata;
+  }
+
+  return image;
+}
+
+function normalizeGeneratedVideo(
+  value: unknown
+): NonNullable<DirectorGeneratedMedia["videos"]>[number] | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const url = getNonEmptyString(value.url);
+  if (!url) {
+    return null;
+  }
+
+  const video: NonNullable<DirectorGeneratedMedia["videos"]>[number] = { url };
+
+  const thumbnailUrl = getNonEmptyString(value.thumbnailUrl);
+  if (thumbnailUrl) {
+    video.thumbnailUrl = thumbnailUrl;
+  }
+
+  if (isFiniteNumber(value.durationSeconds)) {
+    video.durationSeconds = Number(value.durationSeconds);
+  }
+
+  if (isRecord(value.metadata) && Object.keys(value.metadata).length > 0) {
+    video.metadata = value.metadata;
+  }
+
+  return video;
+}
+
+function resolveStatusFromCode(code: DirectorCoreErrorCode | undefined) {
+  switch (code) {
+    case "PROVIDER_ERROR":
+    case "MEDIA_GENERATION_FAILED":
+      return 502;
+    case "PROMPT_FALLBACK":
+      return 200;
+    case "UNIMPLEMENTED":
+      return 501;
+    default:
+      return 500;
+  }
+}
+
+function sanitizeErrorDetails(details: unknown): unknown {
+  if (details === undefined) {
+    return undefined;
+  }
+
+  if (details === null) {
+    return null;
+  }
+
+  if (details instanceof Error) {
+    return {
+      name: details.name,
+      message: details.message,
+    };
+  }
+
+  if (Array.isArray(details)) {
+    return details
+      .slice(0, 20)
+      .map((item) => sanitizeErrorDetails(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (isRecord(details)) {
+    const sanitized: UnknownRecord = {};
+    for (const [key, value] of Object.entries(details)) {
+      if (typeof key === "string") {
+        const sanitizedValue = sanitizeErrorDetails(value);
+        if (sanitizedValue !== undefined) {
+          sanitized[key] = sanitizedValue;
+        }
+      }
+    }
+    return sanitized;
+  }
+
+  if (
+    typeof details === "string" ||
+    typeof details === "number" ||
+    typeof details === "boolean"
+  ) {
+    return details;
+  }
+
+  return String(details);
+}
+
+function extractApiKeyFromHeaders(headers: Headers) {
+  const direct = getNonEmptyString(headers.get(DIRECTOR_API_KEY_HEADER));
+  if (direct) {
+    return direct;
+  }
+
+  const auth = headers.get("authorization");
+  if (auth) {
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    if (match) {
+      const token = getNonEmptyString(match[1]);
+      if (token) {
+        return token;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function parseEnvBoolean(value: string | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }
 
 function validateDirectorRequest(payload: unknown): ValidationResult {
@@ -388,7 +655,7 @@ function parseNullableString(value: unknown): string | null {
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
-  return Boolean(value) && typeof value === "object";
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNonEmptyString(value: unknown): value is string {
