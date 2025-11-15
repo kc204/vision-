@@ -1,3 +1,5 @@
+import type { VisualOption } from "./visualOptions";
+
 export type ImagePromptMode = "image_prompt";
 export type VideoPlanMode = "video_plan";
 export type LoopSequenceMode = "loop_sequence";
@@ -18,6 +20,15 @@ export type ImagePromptPayload = {
     lightingStyles: string[];
     colorPalettes: string[];
     atmosphere: string[];
+  };
+  glossary: {
+    cameraAngles: VisualOption[];
+    shotSizes: VisualOption[];
+    composition: VisualOption[];
+    cameraMovement: VisualOption[];
+    lightingStyles: VisualOption[];
+    colorPalettes: VisualOption[];
+    atmosphere: VisualOption[];
   };
   mood_profile: string | null;
   constraints: string | null;

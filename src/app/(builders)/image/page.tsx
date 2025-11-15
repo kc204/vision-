@@ -43,6 +43,16 @@ const optionGroups: Array<{
   { key: "atmosphere", label: "Atmosphere & effects", options: atmosphere },
 ];
 
+const glossary: ImagePromptPayload["glossary"] = {
+  cameraAngles,
+  shotSizes,
+  composition,
+  cameraMovement,
+  lightingStyles,
+  colorPalettes,
+  atmosphere,
+};
+
 export default function ImageBuilderPage() {
   const [subjectFocus, setSubjectFocus] = useState("");
   const [environment, setEnvironment] = useState("");
@@ -113,6 +123,7 @@ export default function ImageBuilderPage() {
         vision_seed_text: visionSeedText,
         model,
         selectedOptions,
+        glossary,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
         constraints: constraints.trim().length ? constraints.trim() : null,
       };

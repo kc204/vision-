@@ -7,6 +7,7 @@ import type {
   VideoPlanPayload,
   LoopSequencePayload,
 } from "@/lib/directorTypes";
+import type { VisualOption } from "@/lib/visualOptions";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -110,6 +111,7 @@ function parseImagePromptPayload(value: unknown): ValidationResult {
     vision_seed_text,
     model,
     selectedOptions,
+    glossary,
     mood_profile = null,
     constraints = null,
   } = value as UnknownRecord;
@@ -127,10 +129,16 @@ function parseImagePromptPayload(value: unknown): ValidationResult {
     return selections;
   }
 
+  const parsedGlossary = parseGlossary(glossary);
+  if (!parsedGlossary.ok) {
+    return parsedGlossary;
+  }
+
   const payload: ImagePromptPayload = {
     vision_seed_text: vision_seed_text.trim(),
     model,
     selectedOptions: selections.value,
+    glossary: parsedGlossary.value,
     mood_profile: parseNullableString(mood_profile),
     constraints: parseNullableString(constraints),
   };
@@ -300,6 +308,128 @@ function parseSelections(value: unknown):
   }
 
   return { ok: true, value: selections };
+}
+
+function parseGlossary(value: unknown):
+  | { ok: true; value: ImagePromptPayload["glossary"] }
+  | { ok: false; error: string } {
+  if (!isRecord(value)) {
+    return { ok: false, error: "glossary must be an object" };
+  }
+
+  const keys: Array<keyof ImagePromptPayload["glossary"]> = [
+    "cameraAngles",
+    "shotSizes",
+    "composition",
+    "cameraMovement",
+    "lightingStyles",
+    "colorPalettes",
+    "atmosphere",
+  ];
+
+  const glossary: ImagePromptPayload["glossary"] = {
+    cameraAngles: [],
+    shotSizes: [],
+    composition: [],
+    cameraMovement: [],
+    lightingStyles: [],
+    colorPalettes: [],
+    atmosphere: [],
+  };
+
+  for (const key of keys) {
+    const list = parseVisualOptionArray(value[key]);
+    if (!list.ok) {
+      return list;
+    }
+    glossary[key] = list.value;
+  }
+
+  return { ok: true, value: glossary };
+}
+
+function parseVisualOptionArray(value: unknown):
+  | { ok: true; value: VisualOption[] }
+  | { ok: false; error: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: "glossary entries must be arrays of visual options" };
+  }
+
+  const options: VisualOption[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item)) {
+      return { ok: false, error: "Each glossary option must be an object" };
+    }
+
+    const { id, label, tooltip, promptSnippet, group, keywords } =
+      item as UnknownRecord;
+
+    if (!isNonEmptyString(id)) {
+      return { ok: false, error: "glossary option id must be a string" };
+    }
+
+    if (!isNonEmptyString(label)) {
+      return { ok: false, error: "glossary option label must be a string" };
+    }
+
+    if (!isNonEmptyString(tooltip)) {
+      return { ok: false, error: "glossary option tooltip must be a string" };
+    }
+
+    if (!isNonEmptyString(promptSnippet)) {
+      return { ok: false, error: "glossary option promptSnippet must be a string" };
+    }
+
+    let parsedGroup: string | undefined;
+    if (group !== undefined && group !== null) {
+      if (typeof group !== "string") {
+        return { ok: false, error: "glossary option group must be a string" };
+      }
+      parsedGroup = group.trim() || undefined;
+    }
+
+    let parsedKeywords: string[] | undefined;
+    if (keywords !== undefined && keywords !== null) {
+      if (!Array.isArray(keywords)) {
+        return { ok: false, error: "glossary option keywords must be an array" };
+      }
+
+      if (!keywords.every((keyword) => typeof keyword === "string")) {
+        return {
+          ok: false,
+          error: "glossary option keywords must all be strings",
+        };
+      }
+
+      const validKeywords = keywords
+        .map((keyword: string) => keyword.trim())
+        .filter(Boolean);
+
+      if (validKeywords.length > 0) {
+        parsedKeywords = validKeywords;
+      }
+    }
+
+    const option: VisualOption = {
+      id: id.trim(),
+      label: label.trim(),
+      tooltip: tooltip.trim(),
+      promptSnippet: promptSnippet.trim(),
+    };
+
+    if (parsedGroup) {
+      option.group = parsedGroup;
+    }
+
+    if (parsedKeywords) {
+      option.keywords = parsedKeywords;
+    }
+
+    options.push(option);
+  }
+
+  return { ok: true, value: options };
 }
 
 function parseOptionalStringArray(value: unknown): string[] | undefined {
