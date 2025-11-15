@@ -1,4 +1,4 @@
-import { parseModelList, resolveGoogleModel } from "./googleModels";
+import { parseModelList } from "./googleModels";
 
 const GEMINI_API_URL =
   process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
@@ -30,7 +30,6 @@ export type GeminiChatError = {
 export type GeminiChatResult = GeminiChatSuccess | GeminiChatError;
 
 type GeminiChatCredentials = {
-  googleAccessToken?: string;
   apiKey?: string;
 };
 
@@ -39,43 +38,26 @@ export async function callGeminiChat(
   history: GeminiChatMessage[],
   credentials?: GeminiChatCredentials
 ): Promise<GeminiChatResult> {
-  const googleAccessToken = credentials?.googleAccessToken;
-  const fallbackApiKey =
+  const apiKey =
     credentials?.apiKey ??
     getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
 
-  const usingOAuth = Boolean(googleAccessToken);
-  const token = googleAccessToken ?? fallbackApiKey;
-
-  if (!token) {
+  if (!apiKey) {
     return {
       success: false,
       error:
-        "Missing credentials for Gemini chat. Sign in with Google or configure GEMINI_API_KEY.",
+        "Missing credentials for Gemini chat. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
-  let model: string | null;
-  try {
-    model = usingOAuth
-      ? await resolveGoogleModel(token, GEMINI_CHAT_MODELS, GEMINI_API_URL)
-      : GEMINI_CHAT_MODELS[0];
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to evaluate Google account entitlements for Gemini chat.";
-    return { success: false, error: message };
-  }
-
+  const model = GEMINI_CHAT_MODELS[0];
   if (!model) {
     return {
       success: false,
-      error:
-        "Your Google account is not entitled to the Gemini chat models required for loop assistant.",
-      status: 403,
+      error: "No Gemini chat model is configured.",
+      status: 500,
     };
   }
 
@@ -83,10 +65,7 @@ export async function callGeminiChat(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
-  if (usingOAuth) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
   const contents = history.map((message) => ({
     role: message.role === "assistant" ? "model" : "user",

@@ -1,4 +1,4 @@
-import { parseModelList, resolveGoogleModel } from "./googleModels";
+import { parseModelList } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import type {
   DirectorCoreResult,
@@ -24,14 +24,11 @@ const VEO_VIDEO_MODELS = parseModelList(
 );
 
 export type DirectorProviderCredentials = {
-  google?: {
-    accessToken?: string;
-  };
   gemini?: {
-    apiKey?: string;
+    apiKey: string;
   };
   veo?: {
-    apiKey?: string;
+    apiKey: string;
   };
   nanoBanana?: {
     apiKey?: string;
@@ -67,46 +64,28 @@ async function callGeminiImageProvider(
   req: Extract<DirectorRequest, { mode: "image_prompt" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const googleAccessToken = credentials?.google?.accessToken;
-  const providedApiKey = getNonEmptyString(credentials?.gemini?.apiKey);
-  const fallbackApiKey =
-    providedApiKey ??
+  const apiKey =
+    credentials?.gemini?.apiKey ??
     getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
 
-  const usingOAuth = Boolean(googleAccessToken);
-  const token = googleAccessToken ?? fallbackApiKey;
-
-  if (!token) {
+  if (!apiKey) {
     return {
       success: false,
       provider: "gemini",
       error:
-        "Missing credentials for Gemini image generation. Sign in with Google or configure GEMINI_API_KEY.",
+        "Missing credentials for Gemini image generation. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
-  let model: string | null;
-  try {
-    model = usingOAuth
-      ? await resolveGoogleModel(token, GEMINI_IMAGE_MODELS, GEMINI_API_URL)
-      : GEMINI_IMAGE_MODELS[0];
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to evaluate Google account entitlements for Gemini.";
-    return { success: false, provider: "gemini", error: message };
-  }
-
+  const model = GEMINI_IMAGE_MODELS[0];
   if (!model) {
     return {
       success: false,
       provider: "gemini",
-      error:
-        "Your Google account is not entitled to any Gemini image models required for Director Core.",
-      status: 403,
+      error: "No Gemini image model is configured.",
+      status: 500,
     };
   }
 
@@ -116,10 +95,7 @@ async function callGeminiImageProvider(
     "Content-Type": "application/json",
   };
 
-  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
-  if (usingOAuth) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
   const parts = buildUserParts(req.payload, req.images);
   const payload = {
@@ -201,47 +177,29 @@ async function callVeoVideoProvider(
   req: Extract<DirectorRequest, { mode: "video_plan" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const googleAccessToken = credentials?.google?.accessToken;
-  const providedApiKey =
-    getNonEmptyString(credentials?.veo?.apiKey) ??
-    getNonEmptyString(credentials?.gemini?.apiKey);
-  const fallbackApiKey =
-    providedApiKey ??
+  const apiKey =
+    credentials?.veo?.apiKey ??
     getNonEmptyString(process.env.VEO_API_KEY) ??
+    getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
 
-  const usingOAuth = Boolean(googleAccessToken);
-  const token = googleAccessToken ?? fallbackApiKey;
-
-  if (!token) {
+  if (!apiKey) {
     return {
       success: false,
       provider: "veo-3.1",
       error:
-        "Missing credentials for Veo video planning. Sign in with Google or configure VEO_API_KEY.",
+        "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
-  let model: string | null;
-  try {
-    model = usingOAuth
-      ? await resolveGoogleModel(token, VEO_VIDEO_MODELS, VEO_API_URL)
-      : VEO_VIDEO_MODELS[0];
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to evaluate Google account entitlements for Veo.";
-    return { success: false, provider: "veo-3.1", error: message };
-  }
-
+  const model = VEO_VIDEO_MODELS[0];
   if (!model) {
     return {
       success: false,
       provider: "veo-3.1",
-      error: "Your Google account is not entitled to any Veo models required for Director Core.",
-      status: 403,
+      error: "No Veo model is configured.",
+      status: 500,
     };
   }
 
@@ -249,10 +207,7 @@ async function callVeoVideoProvider(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
-  if (usingOAuth) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
   const parts = buildVideoPlanParts(req.payload, req.images);
   const payload = {
