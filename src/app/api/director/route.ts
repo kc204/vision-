@@ -7,8 +7,6 @@ import type {
   VideoPlanPayload,
   LoopSequencePayload,
   DirectorCoreResult,
-  DirectorGeneratedMedia,
-  DirectorCoreErrorCode,
 } from "@/lib/directorTypes";
 
 type UnknownRecord = Record<string, unknown>;
@@ -67,9 +65,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await callDirectorCore(validation.value, { apiKey });
-    const payload = formatSuccessPayload(result);
-    return NextResponse.json(payload);
+    const result = await callDirectorCore(validation.value);
+    if (isDirectorCoreError(result)) {
+      const status = result.status ?? 502;
+      return NextResponse.json(
+        {
+          error: result.error,
+          provider: result.provider,
+          details: result.details ?? null,
+        },
+        { status }
+      );
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Director Core invocation failed", error);
 
@@ -101,217 +110,11 @@ export async function POST(request: Request) {
   }
 }
 
-function formatSuccessPayload(result: DirectorCoreResult) {
-  const prompt = typeof result.promptText === "string" ? result.promptText : null;
-  const media = normalizeGeneratedMedia(result.media);
-  const warnings = Array.isArray(result.warnings)
-    ? result.warnings
-        .map((item) => (typeof item === "string" ? item : String(item)))
-        .filter((item) => item.trim().length > 0)
-    : [];
-
-  const fallback =
-    result.fallback === "prompt-only" || (!media && prompt)
-      ? "prompt-only"
-      : null;
-
-  return {
-    text: prompt,
-    prompt,
-    media,
-    warnings,
-    fallback,
-  };
-}
-
-function normalizeGeneratedMedia(
-  media: DirectorGeneratedMedia | undefined
-): DirectorGeneratedMedia | null {
-  if (!media || (!media.images && !media.videos && !media.metadata)) {
-    return null;
-  }
-
-  const normalized: DirectorGeneratedMedia = {};
-
-  if (Array.isArray(media.images)) {
-    const images = media.images
-      .map(normalizeGeneratedImage)
-      .filter((image): image is NonNullable<typeof image> => Boolean(image));
-    if (images.length > 0) {
-      normalized.images = images;
-    }
-  }
-
-  if (Array.isArray(media.videos)) {
-    const videos = media.videos
-      .map(normalizeGeneratedVideo)
-      .filter((video): video is NonNullable<typeof video> => Boolean(video));
-    if (videos.length > 0) {
-      normalized.videos = videos;
-    }
-  }
-
-  if (isRecord(media.metadata) && Object.keys(media.metadata).length > 0) {
-    normalized.metadata = media.metadata;
-  }
-
-  return Object.keys(normalized).length > 0 ? normalized : null;
-}
-
-function normalizeGeneratedImage(
-  value: unknown
-): NonNullable<DirectorGeneratedMedia["images"]>[number] | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const buffer = getNonEmptyString(value.buffer);
-  const mimeType = getNonEmptyString(value.mimeType);
-  const width = isFiniteNumber(value.width) ? Number(value.width) : null;
-  const height = isFiniteNumber(value.height) ? Number(value.height) : null;
-
-  if (!buffer || !mimeType || width === null || height === null) {
-    return null;
-  }
-
-  const image: NonNullable<DirectorGeneratedMedia["images"]>[number] = {
-    buffer,
-    mimeType,
-    width,
-    height,
-  };
-
-  if (isRecord(value.metadata) && Object.keys(value.metadata).length > 0) {
-    image.metadata = value.metadata;
-  }
-
-  return image;
-}
-
-function normalizeGeneratedVideo(
-  value: unknown
-): NonNullable<DirectorGeneratedMedia["videos"]>[number] | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const url = getNonEmptyString(value.url);
-  if (!url) {
-    return null;
-  }
-
-  const video: NonNullable<DirectorGeneratedMedia["videos"]>[number] = { url };
-
-  const thumbnailUrl = getNonEmptyString(value.thumbnailUrl);
-  if (thumbnailUrl) {
-    video.thumbnailUrl = thumbnailUrl;
-  }
-
-  if (isFiniteNumber(value.durationSeconds)) {
-    video.durationSeconds = Number(value.durationSeconds);
-  }
-
-  if (isRecord(value.metadata) && Object.keys(value.metadata).length > 0) {
-    video.metadata = value.metadata;
-  }
-
-  return video;
-}
-
-function resolveStatusFromCode(code: DirectorCoreErrorCode | undefined) {
-  switch (code) {
-    case "PROVIDER_ERROR":
-    case "MEDIA_GENERATION_FAILED":
-      return 502;
-    case "PROMPT_FALLBACK":
-      return 200;
-    case "UNIMPLEMENTED":
-      return 501;
-    default:
-      return 500;
-  }
-}
-
-function sanitizeErrorDetails(details: unknown): unknown {
-  if (details === undefined) {
-    return undefined;
-  }
-
-  if (details === null) {
-    return null;
-  }
-
-  if (details instanceof Error) {
-    return {
-      name: details.name,
-      message: details.message,
-    };
-  }
-
-  if (Array.isArray(details)) {
-    return details
-      .slice(0, 20)
-      .map((item) => sanitizeErrorDetails(item))
-      .filter((item) => item !== undefined);
-  }
-
-  if (isRecord(details)) {
-    const sanitized: UnknownRecord = {};
-    for (const [key, value] of Object.entries(details)) {
-      if (typeof key === "string") {
-        const sanitizedValue = sanitizeErrorDetails(value);
-        if (sanitizedValue !== undefined) {
-          sanitized[key] = sanitizedValue;
-        }
-      }
-    }
-    return sanitized;
-  }
-
-  if (
-    typeof details === "string" ||
-    typeof details === "number" ||
-    typeof details === "boolean"
-  ) {
-    return details;
-  }
-
-  return String(details);
-}
-
-function extractApiKeyFromHeaders(headers: Headers) {
-  const direct = getNonEmptyString(headers.get(DIRECTOR_API_KEY_HEADER));
-  if (direct) {
-    return direct;
-  }
-
-  const auth = headers.get("authorization");
-  if (auth) {
-    const match = auth.match(/^Bearer\s+(.+)$/i);
-    if (match) {
-      const token = getNonEmptyString(match[1]);
-      if (token) {
-        return token;
-      }
-    }
-  }
-
-  return undefined;
-}
-
-function parseEnvBoolean(value: string | undefined) {
-  if (!value) {
-    return false;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function getNonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
+function isDirectorCoreError(result: DirectorCoreResult): result is Extract<
+  DirectorCoreResult,
+  { success: false }
+> {
+  return result.success === false;
 }
 
 function validateDirectorRequest(payload: unknown): ValidationResult {
