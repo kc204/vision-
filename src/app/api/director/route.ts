@@ -54,22 +54,136 @@ const openai = new OpenAI({
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("Missing OPENAI_API_KEY env variable");
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "OpenAI API key not configured" },
-        { status: 500 }
-      );
+    const body = await request.json();
+    const directorRequest = parseDirectorRequest(body);
+
+    const text = await callDirectorCore(directorRequest);
+
+    return NextResponse.json({ text });
+  } catch (error) {
+    if (error instanceof DirectorValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const body = (await request.json()) as Partial<LoopDirectorRequest>;
+    console.error("Unhandled director error", error);
+    return NextResponse.json(
+      { error: "Failed to call Director Core" },
+      { status: 500 }
+    );
+  }
+}
 
-    if (body.mode !== "loop_sequence") {
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "Unsupported director mode" },
-        { status: 400 }
-      );
+function parseDirectorRequest(body: unknown): DirectorRequest {
+  if (!isRecord(body)) {
+    throw new DirectorValidationError("Request body must be a JSON object");
+  }
+
+  const { mode, payload } = body;
+
+  if (typeof mode !== "string") {
+    throw new DirectorValidationError("mode is required");
+  }
+
+  if (!isRecord(payload)) {
+    throw new DirectorValidationError("payload must be an object");
+  }
+
+  switch (mode) {
+    case "image_prompt":
+      return {
+        mode,
+        payload: parseImagePromptPayload(payload),
+      } satisfies ImagePromptDirectorRequest;
+    case "loop_sequence":
+      return {
+        mode,
+        payload: parseLoopSequencePayload(payload),
+      } satisfies LoopSequenceDirectorRequest;
+    case "video_plan":
+      return {
+        mode,
+        payload: parseVideoPlanPayload(payload),
+      } satisfies VideoPlanDirectorRequest;
+    default:
+      throw new DirectorValidationError(`Unsupported director mode: ${mode}`);
+  }
+}
+
+function parseImagePromptPayload(payload: UnknownRecord): ImagePromptDirectorRequest["payload"] {
+  const { visionSeedText, modelChoice } = payload;
+
+  if (!isNonEmptyString(visionSeedText)) {
+    throw new DirectorValidationError("visionSeedText is required");
+  }
+
+  if (typeof modelChoice !== "string" || !VALID_IMAGE_MODELS.has(modelChoice)) {
+    throw new DirectorValidationError(
+      "modelChoice must be one of: sdxl, flux, illustrious"
+    );
+  }
+
+  const result: ImagePromptDirectorRequest["payload"] = {
+    visionSeedText: visionSeedText.trim(),
+    modelChoice,
+  };
+
+  if (payload.cameraAngleId !== undefined) {
+    result.cameraAngleId = parseOptionalString(payload.cameraAngleId, "cameraAngleId");
+  }
+
+  if (payload.shotSizeId !== undefined) {
+    result.shotSizeId = parseOptionalString(payload.shotSizeId, "shotSizeId");
+  }
+
+  if (payload.compositionTechniqueId !== undefined) {
+    result.compositionTechniqueId = parseOptionalString(
+      payload.compositionTechniqueId,
+      "compositionTechniqueId"
+    );
+  }
+
+  if (payload.lightingVocabularyId !== undefined) {
+    result.lightingVocabularyId = parseOptionalString(
+      payload.lightingVocabularyId,
+      "lightingVocabularyId"
+    );
+  }
+
+  if (payload.colorPaletteId !== undefined) {
+    result.colorPaletteId = parseOptionalString(
+      payload.colorPaletteId,
+      "colorPaletteId"
+    );
+  }
+
+  if (payload.motionCueIds !== undefined) {
+    result.motionCueIds = parseStringArray(payload.motionCueIds, "motionCueIds");
+  }
+
+  if (payload.stylePackIds !== undefined) {
+    result.stylePackIds = parseStringArray(payload.stylePackIds, "stylePackIds");
+  }
+
+  return result;
+}
+
+function parseLoopSequencePayload(payload: UnknownRecord): LoopSequenceDirectorRequest["payload"] {
+  const { loopSeedText } = payload;
+
+  if (!isNonEmptyString(loopSeedText)) {
+    throw new DirectorValidationError("loopSeedText is required");
+  }
+
+  const result: LoopSequenceDirectorRequest["payload"] = {
+    loopSeedText: loopSeedText.trim(),
+  };
+
+  if (payload.durationSeconds !== undefined) {
+    if (!isFiniteNumber(payload.durationSeconds)) {
+      throw new DirectorValidationError("durationSeconds must be a number");
     }
+    result.durationSeconds = Number(payload.durationSeconds);
+  }
 
     if (!body.payload?.vision_seed_text?.trim()) {
       return NextResponse.json<DirectorErrorResponse>(
@@ -84,6 +198,12 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    result.aspectRatio = payload.aspectRatio as LoopSequenceDirectorRequest["payload"]["aspectRatio"];
+  }
+
+  if (payload.vibe !== undefined) {
+    result.vibe = parseOptionalString(payload.vibe, "vibe");
+  }
 
     const loopLength = Number.isFinite(body.payload.loop_length)
       ? Math.max(1, Number(body.payload.loop_length))
@@ -178,12 +298,44 @@ Return a JSON array of cycles using this schema:
       );
     }
 
-    return NextResponse.json(parsed);
-  } catch (error) {
-    console.error("Unhandled director error", error);
-    return NextResponse.json<DirectorErrorResponse>(
-      { error: "Failed to generate loop sequence" },
-      { status: 500 }
-    );
+    return {
+      id: id.trim(),
+      title: title.trim(),
+      summary: summary.trim(),
+      question: question.trim(),
+    } satisfies SceneDraft;
+  });
+}
+
+function parseSceneAnswerArray(value: unknown): SceneAnswer[] {
+  if (!Array.isArray(value)) {
+    throw new DirectorValidationError("sceneAnswers must be an array");
   }
+
+  return value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}] must be an object`
+      );
+    }
+
+    const { sceneId, answer } = item;
+
+    if (!isNonEmptyString(sceneId)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}].sceneId is required`
+      );
+    }
+
+    if (!isNonEmptyString(answer)) {
+      throw new DirectorValidationError(
+        `sceneAnswers[${index}].answer is required`
+      );
+    }
+
+    return {
+      sceneId: sceneId.trim(),
+      answer: answer.trim(),
+    } satisfies SceneAnswer;
+  });
 }
