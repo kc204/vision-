@@ -4,10 +4,10 @@ import {
   cameraAngles,
   shotSizes,
   colorPalettes,
-  compositionTechniques,
-  lightingVocabulary,
-  motionCues,
-  stylePacks,
+  composition,
+  lightingStyles,
+  cameraMovement,
+  atmosphere,
   findVisualSnippet,
   findVisualSnippets,
 } from "@/lib/visualOptions";
@@ -18,11 +18,11 @@ type ImagePromptRequest = {
   modelChoice: "sdxl" | "flux" | "illustrious";
   cameraAngleId?: string;
   shotSizeId?: string;
-  compositionTechniqueId?: string;
-  lightingVocabularyId?: string;
+  compositionId?: string;
+  lightingStyleId?: string;
   colorPaletteId?: string;
-  motionCueIds?: string[];
-  stylePackIds?: string[];
+  cameraMovementIds?: string[];
+  atmosphereIds?: string[];
 };
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -53,25 +53,28 @@ export async function POST(request: Request) {
     const cameraSnippet = findVisualSnippet(cameraAngles, body.cameraAngleId)?.promptSnippet;
     const shotSnippet = findVisualSnippet(shotSizes, body.shotSizeId)?.promptSnippet;
     const compositionSnippet = findVisualSnippet(
-      compositionTechniques,
-      body.compositionTechniqueId
+      composition,
+      body.compositionId
     )?.promptSnippet;
     const lightingSnippet = findVisualSnippet(
-      lightingVocabulary,
-      body.lightingVocabularyId
+      lightingStyles,
+      body.lightingStyleId
     )?.promptSnippet;
     const colorSnippet = findVisualSnippet(colorPalettes, body.colorPaletteId)?.promptSnippet;
-    const motionOptions = findVisualSnippets(motionCues, body.motionCueIds);
-    const styleOptions = findVisualSnippets(stylePacks, body.stylePackIds);
-    const motionSnippet =
-      motionOptions.length > 0
-        ? motionOptions
+    const cameraMovementOptions = findVisualSnippets(
+      cameraMovement,
+      body.cameraMovementIds
+    );
+    const atmosphereOptions = findVisualSnippets(atmosphere, body.atmosphereIds);
+    const movementSnippet =
+      cameraMovementOptions.length > 0
+        ? cameraMovementOptions
             .map((option) => `${option.label}: ${option.promptSnippet}`)
             .join("; ")
         : undefined;
-    const styleSnippet =
-      styleOptions.length > 0
-        ? styleOptions
+    const atmosphereSnippet =
+      atmosphereOptions.length > 0
+        ? atmosphereOptions
             .map((option) => `${option.label}: ${option.promptSnippet}`)
             .join("; ")
         : undefined;
@@ -84,7 +87,7 @@ If modelChoice is "sdxl" or "flux", use descriptive cinematic language.
 Always include appropriate smart negatives (e.g., bad anatomy, low quality, blurry, watermark, extra limbs, unwanted text).
 Respond ONLY with JSON.`;
 
-    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nComposition: ${compositionSnippet ?? "none specified"}\nLighting vocabulary: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\nMotion cues: ${motionSnippet ?? "none specified"}\nStyle packs: ${styleSnippet ?? "none specified"}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
+    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nComposition: ${compositionSnippet ?? "none specified"}\nLighting style: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\nCamera movement: ${movementSnippet ?? "none specified"}\nAtmosphere: ${atmosphereSnippet ?? "none specified"}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
 
     const completion = await openai.chat.completions.create({
       model: MODEL,
