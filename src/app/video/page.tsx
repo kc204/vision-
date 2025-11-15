@@ -173,8 +173,16 @@ export default function VideoPlanPage() {
     setSceneAnswers({});
     setFinalPlan(null);
     setRenderJob(null);
-    setReferenceImages([]);
     setExpandedScenes({});
+  }
+
+  function createRequestFormData(payload: unknown, files: File[]) {
+    const formData = new FormData();
+    formData.append("payload", JSON.stringify(payload));
+    files.forEach((file) => {
+      formData.append("referenceImages", file, file.name);
+    });
+    return formData;
   }
 
   async function submitVisionSeed(event: FormEvent<HTMLFormElement>) {
@@ -186,10 +194,8 @@ export default function VideoPlanPage() {
     resetFlow();
 
     try {
-      const response = await fetch("/api/generate-video-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const formData = createRequestFormData(
+        {
           visionSeed: {
             scriptText: formValues.scriptText,
             tone: formValues.tone,
@@ -197,7 +203,13 @@ export default function VideoPlanPage() {
             references: parseReferences(formValues.references),
             aspectRatio: formValues.aspectRatio,
           },
-        }),
+        },
+        referenceImages
+      );
+
+      const response = await fetch("/api/generate-video-plan", {
+        method: "POST",
+        body: formData,
       });
 
       if (!response.ok) {
@@ -255,10 +267,11 @@ export default function VideoPlanPage() {
     }
 
     try {
+      const formData = createRequestFormData(payload, referenceImages);
+
       const response = await fetch("/api/generate-video-plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: formData,
       });
 
       if (!response.ok) {
@@ -288,10 +301,8 @@ export default function VideoPlanPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/generate-video-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const formData = createRequestFormData(
+        {
           visionSeed: {
             scriptText: formValues.scriptText,
             tone: formValues.tone,
@@ -306,7 +317,13 @@ export default function VideoPlanPage() {
           })),
           directRender: true,
           finalPlanOverride: plan,
-        }),
+        },
+        referenceImages
+      );
+
+      const response = await fetch("/api/generate-video-plan", {
+        method: "POST",
+        body: formData,
       });
 
       if (!response.ok) {

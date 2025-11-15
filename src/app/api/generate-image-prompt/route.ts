@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import {
+  EncodedImageUpload,
+  parseRequestWithOptionalFiles,
+} from "@/lib/multipart";
+import {
   cameraAngles,
   shotSizes,
   colorPalettes,
@@ -13,7 +17,7 @@ import {
 } from "@/lib/visualOptions";
 import { parseStructuredText } from "@/lib/imagePromptParser";
 
-type ImagePromptRequest = {
+type ImagePromptPayload = {
   visionSeedText: string;
   modelChoice: "sdxl" | "flux" | "illustrious";
   cameraAngleId?: string;
@@ -23,6 +27,10 @@ type ImagePromptRequest = {
   colorPaletteId?: string;
   motionCueIds?: string[];
   stylePackIds?: string[];
+};
+
+type ImagePromptRequest = ImagePromptPayload & {
+  visionSeedImages?: EncodedImageUpload[];
 };
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -41,7 +49,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as ImagePromptRequest;
+    let baseBody: ImagePromptPayload;
+    let uploadedImages: EncodedImageUpload[];
+
+    try {
+      ({ body: baseBody, files: uploadedImages } =
+        await parseRequestWithOptionalFiles<ImagePromptPayload>(
+          request,
+          "visionSeedImages"
+        ));
+    } catch (parseError) {
+      console.error("Invalid request payload for image prompt", parseError);
+      return NextResponse.json(
+        { error: "Invalid request payload" },
+        { status: 400 }
+      );
+    }
+
+    const body: ImagePromptRequest = {
+      ...baseBody,
+      visionSeedImages: uploadedImages.length ? uploadedImages : undefined,
+    };
 
     if (!body.visionSeedText || !body.modelChoice) {
       return NextResponse.json(
@@ -84,14 +112,34 @@ If modelChoice is "sdxl" or "flux", use descriptive cinematic language.
 Always include appropriate smart negatives (e.g., bad anatomy, low quality, blurry, watermark, extra limbs, unwanted text).
 Respond ONLY with JSON.`;
 
-    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nComposition: ${compositionSnippet ?? "none specified"}\nLighting vocabulary: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\nMotion cues: ${motionSnippet ?? "none specified"}\nStyle packs: ${styleSnippet ?? "none specified"}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
+    const referenceImageSummary = body.visionSeedImages?.length
+      ? body.visionSeedImages
+          .map((image, index) => `${index + 1}. ${image.filename || "reference-image"}`)
+          .join("\\n")
+      : "None provided";
+
+    const referenceImageParts =
+      body.visionSeedImages?.map((image) => ({
+        type: "image_url" as const,
+        image_url: { url: image.dataUrl },
+      })) ?? [];
+
+    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nComposition: ${compositionSnippet ?? "none specified"}\nLighting vocabulary: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\nMotion cues: ${motionSnippet ?? "none specified"}\nStyle packs: ${styleSnippet ?? "none specified"}\nReference images provided:\n${referenceImageSummary}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
+
+    const userContent =
+      referenceImageParts.length > 0
+        ? ([
+            { type: "text" as const, text: userPrompt },
+            ...referenceImageParts,
+          ] as const)
+        : userPrompt;
 
     const completion = await openai.chat.completions.create({
       model: MODEL,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
+        { role: "user", content: userContent },
       ],
     });
 

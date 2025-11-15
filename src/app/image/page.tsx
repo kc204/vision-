@@ -61,21 +61,27 @@ export default function ImagePromptBuilderPage() {
     setError(null);
 
     try {
+      const payload = {
+        visionSeedText,
+        modelChoice,
+        cameraAngleId: cameraAngleId || undefined,
+        shotSizeId: shotSizeId || undefined,
+        compositionTechniqueId: compositionTechniqueId || undefined,
+        lightingVocabularyId: lightingVocabularyId || undefined,
+        colorPaletteId: colorPaletteId || undefined,
+        motionCueIds: motionCueIds.length ? motionCueIds : undefined,
+        stylePackIds: stylePackIds.length ? stylePackIds : undefined,
+      };
+
+      const formData = new FormData();
+      formData.append("payload", JSON.stringify(payload));
+      visionSeedImages.forEach((file) => {
+        formData.append("visionSeedImages", file, file.name);
+      });
+
       const response = await fetch("/api/generate-image-prompt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          visionSeedText,
-          modelChoice,
-          cameraAngleId: cameraAngleId || undefined,
-          shotSizeId: shotSizeId || undefined,
-          compositionTechniqueId:
-            compositionTechniqueId || undefined,
-          lightingVocabularyId: lightingVocabularyId || undefined,
-          colorPaletteId: colorPaletteId || undefined,
-          motionCueIds: motionCueIds.length ? motionCueIds : undefined,
-          stylePackIds: stylePackIds.length ? stylePackIds : undefined,
-        }),
+        body: formData,
       });
 
       if (!response.ok) {

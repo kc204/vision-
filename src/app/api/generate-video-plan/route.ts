@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import {
+  EncodedImageUpload,
+  parseRequestWithOptionalFiles,
+} from "@/lib/multipart";
 
 type AspectRatio = "16:9" | "9:16";
 
@@ -8,6 +12,15 @@ type VisionSeedInput = {
   tone: string;
   palette: string;
   references: string[];
+  aspectRatio: AspectRatio;
+  referenceImages?: EncodedImageUpload[];
+};
+
+type VisionSeedPayload = {
+  scriptText: string;
+  tone: string;
+  palette: string;
+  references: string[] | string;
   aspectRatio: AspectRatio;
 };
 
@@ -109,13 +122,14 @@ type CompletePlanResponse = {
   renderJob?: RenderJob;
 };
 
-type VideoPlanRequest = {
-  visionSeed: VisionSeedInput;
+type VideoPlanPayload = {
+  visionSeed: VisionSeedPayload;
   segmentation?: SceneDraft[];
   sceneAnswers?: SceneAnswer[];
   directRender?: boolean;
   finalPlanOverride?: CompletePlanResponse;
 };
+
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const GEMINI_VIDEO_MODEL =
@@ -137,16 +151,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as VideoPlanRequest;
+    let baseBody: VideoPlanPayload;
+    let uploadedImages: EncodedImageUpload[];
 
-    if (!body.visionSeed) {
+    try {
+      ({ body: baseBody, files: uploadedImages } =
+        await parseRequestWithOptionalFiles<VideoPlanPayload>(
+          request,
+          "referenceImages"
+        ));
+    } catch (parseError) {
+      console.error("Invalid request payload for video plan", parseError);
+      return NextResponse.json(
+        { error: "Invalid request payload" },
+        { status: 400 }
+      );
+    }
+
+    if (!baseBody.visionSeed) {
       return NextResponse.json(
         { error: "Missing visionSeed payload" },
         { status: 400 }
       );
     }
 
-    const { visionSeed, segmentation, sceneAnswers, directRender, finalPlanOverride } = body;
+    const { visionSeed, segmentation, sceneAnswers, directRender, finalPlanOverride } =
+      baseBody;
 
     if (!visionSeed.scriptText?.trim()) {
       return NextResponse.json(
@@ -189,6 +219,7 @@ export async function POST(request: Request) {
             .filter(Boolean)
         : [],
       aspectRatio: visionSeed.aspectRatio,
+      referenceImages: uploadedImages.length ? uploadedImages : undefined,
     };
 
     if (finalPlanOverride && directRender) {
@@ -242,18 +273,38 @@ async function generateSegmentation(
       ? visionSeed.references.map((ref, index) => `${index + 1}. ${ref}`).join("\\n")
       : "None provided";
 
+  const referenceImageSummary = visionSeed.referenceImages?.length
+    ? visionSeed.referenceImages
+        .map((image, index) => `${index + 1}. ${image.filename || "reference-image"}`)
+        .join("\\n")
+    : "None provided";
+
+  const referenceImageParts =
+    visionSeed.referenceImages?.map((image) => ({
+      type: "image_url" as const,
+      image_url: { url: image.dataUrl },
+    })) ?? [];
+
   const systemPrompt = `You are Vision Canvas Orchestrator, a senior cinematic director running a multi-step planning pipeline.
 Stage goal: take the provided vision seed (script, tone, palette, references) and output a segmentation blueprint.
 Respond ONLY with JSON matching the requested schema.`;
 
-  const userPrompt = `VISION SEED SCRIPT:\n${visionSeed.scriptText}\n\nTONE DIRECTIVE:\n${visionSeed.tone}\n\nCOLOR PALETTE NOTES:\n${visionSeed.palette}\n\nCITED REFERENCES:\n${referencesBlock}\n\nASPECT RATIO TARGET:${visionSeed.aspectRatio}\n\nInstructions:\n- Create 6-10 story scenes depending on density.\n- Each scene must have a human-friendly title, a beat summary, and one clarifying question the editor should answer.\n- Questions must be specific and reference the beat context.\n- Provide a refined summary of the overall concept that future stages will reuse.\n\nReturn JSON as:\n{\n  "stage": "collect_details",\n  "visionSeed": {\n    "hook": "...",\n    "story_summary": "...",\n    "tone_directives": "...",\n    "palette_notes": "...",\n    "reference_synthesis": "...",\n    "aspectRatio": "16:9"\n  },\n  "segmentation": [\n    {\n      "id": "scene-1",\n      "title": "Scene title",\n      "summary": "Two sentence beat summary",\n      "question": "Clarifying question to ask"\n    }\n  ]\n}`;
+  const userPrompt = `VISION SEED SCRIPT:\n${visionSeed.scriptText}\n\nTONE DIRECTIVE:\n${visionSeed.tone}\n\nCOLOR PALETTE NOTES:\n${visionSeed.palette}\n\nCITED REFERENCES:\n${referencesBlock}\n\nREFERENCE IMAGE UPLOADS:\n${referenceImageSummary}\n\nASPECT RATIO TARGET:${visionSeed.aspectRatio}\n\nInstructions:\n- Create 6-10 story scenes depending on density.\n- Each scene must have a human-friendly title, a beat summary, and one clarifying question the editor should answer.\n- Questions must be specific and reference the beat context.\n- Provide a refined summary of the overall concept that future stages will reuse.\n\nReturn JSON as:\n{\n  "stage": "collect_details",\n  "visionSeed": {\n    "hook": "...",\n    "story_summary": "...",\n    "tone_directives": "...",\n    "palette_notes": "...",\n    "reference_synthesis": "...",\n    "aspectRatio": "16:9"\n  },\n  "segmentation": [\n    {\n      "id": "scene-1",\n      "title": "Scene title",\n      "summary": "Two sentence beat summary",\n      "question": "Clarifying question to ask"\n    }\n  ]\n}`;
+
+  const userContent =
+    referenceImageParts.length > 0
+      ? ([
+          { type: "text" as const, text: userPrompt },
+          ...referenceImageParts,
+        ] as const)
+      : userPrompt;
 
   const completion = await openai.chat.completions.create({
     model: MODEL,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "user", content: userContent },
     ],
   });
 
@@ -266,6 +317,7 @@ Respond ONLY with JSON matching the requested schema.`;
   const parsed = JSON.parse(content) as CollectDetailsResponse;
   return parsed;
 }
+
 
 async function generateCompletePlan(
   visionSeed: VisionSeedInput,
@@ -285,23 +337,39 @@ async function generateCompletePlan(
 
   const referencesBlock =
     visionSeed.references.length > 0
-      ? visionSeed.references.map((ref, index) => `${index + 1}. ${ref}`).join("\\n")
+      ? visionSeed.references.map((ref, index) => `${index + 1}. ${ref}`).join("\n")
       : "None provided";
 
-  const systemPrompt = `You are Vision Canvas Orchestrator continuing pipeline stages 3-5.
-You already have scene segmentation with answers.
-Produce finished scenes, transition JSONs, and thumbnail concept.
-Respond ONLY with JSON matching schema.`;
+  const referenceImageSummary = visionSeed.referenceImages?.length
+    ? visionSeed.referenceImages
+        .map((image, index) => `${index + 1}. ${image.filename || "reference-image"}`)
+        .join("\n")
+    : "None provided";
 
-  const userPrompt = `VISION SEED CONTEXT:\nTone: ${visionSeed.tone}\nPalette: ${visionSeed.palette}\nAspect Ratio: ${visionSeed.aspectRatio}\nReferences:\n${referencesBlock}\n\nSCRIPT SOURCE:\n${visionSeed.scriptText}\n\nSEGMENTATION WITH ANSWERS:\n${segmentationBlock}\n\nReturn JSON as:\n{\n  "stage": "complete",\n  "visionSeed": {\n    "hook": "...",\n    "story_summary": "...",\n    "tone_directives": "...",\n    "palette_notes": "...",\n    "reference_synthesis": "...",\n    "aspectRatio": "16:9"\n  },\n  "scenes": [\n    {\n      "id": "scene-1",\n      "segment_title": "...",\n      "scene_description": "...",\n      "main_subject": "...",\n      "camera_movement": "...",\n      "visual_tone": "...",\n      "motion": "...",\n      "mood": "...",\n      "narrative": "...",\n      "sound_suggestion": "...",\n      "text_overlay": "...",\n      "voice_timing_hint": "...",\n      "broll_suggestions": "...",\n      "graphics_callouts": "...",\n      "editor_notes": "...",\n      "continuity_lock": {\n        "subject_identity": "...",\n        "lighting_and_palette": "...",\n        "camera_grammar": "...",\n        "environment_motif": "..."\n      },\n      "acceptance_check": ["..."],\n      "followup_answer": "Restatement of provided answer"\n    }\n  ],\n  "transitions": [\n    {\n      "from_scene_id": "scene-1",\n      "to_scene_id": "scene-2",\n      "style": "Cut/Dissolve/...",\n      "description": "Narrative purpose",\n      "motion_design": "Motion design notes",\n      "audio_bridge": "How audio transitions"\n    }\n  ],\n  "thumbnailConcept": {\n    "logline": "...",\n    "composition": "...",\n    "color_notes": "...",\n    "typography": "..."\n  },\n  "exportPayload": {\n    "version": "v1",\n    "aspectRatio": "16:9",\n    "tone": "...",\n    "palette": "...",\n    "references": ["..."],\n    "scenes": [],\n    "transitions": [],\n    "thumbnailConcept": {\n      "logline": "...",\n      "composition": "...",\n      "color_notes": "...",\n      "typography": "..."\n    }\n  }
-}`;
+  const referenceImageParts =
+    visionSeed.referenceImages?.map((image) => ({
+      type: "image_url" as const,
+      image_url: { url: image.dataUrl },
+    })) ?? [];
+
+  const systemPrompt = `You are Vision Canvas Orchestrator continuing pipeline stages 3-5.\nYou already have scene segmentation with answers.\nProduce finished scenes, transition JSONs, and thumbnail concept.\nRespond ONLY with JSON matching schema.`;
+
+  const userPrompt = `VISION SEED CONTEXT:\nTone: ${visionSeed.tone}\nPalette: ${visionSeed.palette}\nAspect Ratio: ${visionSeed.aspectRatio}\nReferences:\n${referencesBlock}\nReference image uploads:\n${referenceImageSummary}\n\nSCRIPT SOURCE:\n${visionSeed.scriptText}\n\nSEGMENTATION WITH ANSWERS:\n${segmentationBlock}\n\nReturn JSON as:\n{\n  "stage": "complete",\n  "visionSeed": {\n    "hook": "...",\n    "story_summary": "...",\n    "tone_directives": "...",\n    "palette_notes": "...",\n    "reference_synthesis": "...",\n    "aspectRatio": "16:9"\n  },\n  "scenes": [\n    {\n      "id": "scene-1",\n      "segment_title": "...",\n      "scene_description": "...",\n      "main_subject": "...",\n      "camera_movement": "...",\n      "visual_tone": "...",\n      "motion": "...",\n      "mood": "...",\n      "narrative": "...",\n      "sound_suggestion": "...",\n      "text_overlay": "...",\n      "voice_timing_hint": "...",\n      "broll_suggestions": "...",\n      "graphics_callouts": "...",\n      "editor_notes": "...",\n      "continuity_lock": {\n        "subject_identity": "...",\n        "lighting_and_palette": "...",\n        "camera_grammar": "...",\n        "environment_motif": "..."\n      },\n      "acceptance_check": ["..."],\n      "followup_answer": "Restatement of provided answer"\n    }\n  ],\n  "transitions": [\n    {\n      "from_scene_id": "scene-1",\n      "to_scene_id": "scene-2",\n      "style": "Cut/Dissolve/...",\n      "description": "Narrative purpose",\n      "motion_design": "Motion design notes",\n      "audio_bridge": "How audio transitions"\n    }\n  ],\n  "thumbnailConcept": {\n    "logline": "...",\n    "composition": "...",\n    "color_notes": "...",\n    "typography": "..."\n  },\n  "exportPayload": {\n    "version": "v1",\n    "aspectRatio": "16:9",\n    "tone": "...",\n    "palette": "...",\n    "references": ["..."],\n    "scenes": [],\n    "transitions": [],\n    "thumbnailConcept": {\n      "logline": "...",\n      "composition": "...",\n      "color_notes": "...",\n      "typography": "..."\n    }\n  }\n}`;
+
+  const userContent =
+    referenceImageParts.length > 0
+      ? ([
+          { type: "text" as const, text: userPrompt },
+          ...referenceImageParts,
+        ] as const)
+      : userPrompt;
 
   const completion = await openai.chat.completions.create({
     model: MODEL,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "user", content: userContent },
     ],
   });
 
