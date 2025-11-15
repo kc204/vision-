@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
+import { ImagePromptDirectorRequest } from "@/lib/directorTypes";
 import {
   cameraAngles,
   shotSizes,
@@ -61,22 +62,23 @@ export default function ImagePromptBuilderPage() {
     setError(null);
 
     try {
+      const payload: ImagePromptDirectorRequest = {
+        mode: "image_prompt",
+        visionSeedText,
+        modelChoice,
+        cameraAngleId: cameraAngleId || undefined,
+        shotSizeId: shotSizeId || undefined,
+        compositionTechniqueId: compositionTechniqueId || undefined,
+        lightingVocabularyId: lightingVocabularyId || undefined,
+        colorPaletteId: colorPaletteId || undefined,
+        motionCueIds: motionCueIds.length ? motionCueIds : undefined,
+        stylePackIds: stylePackIds.length ? stylePackIds : undefined,
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "image_prompt" as const,
-          visionSeedText,
-          modelChoice,
-          cameraAngleId: cameraAngleId || undefined,
-          shotSizeId: shotSizeId || undefined,
-          compositionTechniqueId:
-            compositionTechniqueId || undefined,
-          lightingVocabularyId: lightingVocabularyId || undefined,
-          colorPaletteId: colorPaletteId || undefined,
-          motionCueIds: motionCueIds.length ? motionCueIds : undefined,
-          stylePackIds: stylePackIds.length ? stylePackIds : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {

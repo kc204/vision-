@@ -1,41 +1,10 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-type ContinuityLock = {
-  subject_identity: string;
-  lighting_and_palette: string;
-  camera_grammar: string;
-  environment_motif: string;
-};
-
-type LoopKeyframe = {
-  frame: number;
-  description: string;
-  camera?: string;
-  motion?: string;
-  lighting?: string;
-};
-
-type LoopCycleJSON = {
-  cycle_id: string;
-  title?: string;
-  beat_summary?: string;
-  prompt: string;
-  start_frame: number;
-  loop_length: number;
-  continuity_lock: ContinuityLock;
-  keyframes?: LoopKeyframe[];
-  mood_profile?: string;
-};
-
-type LoopDirectorRequest = {
-  mode: "loop_sequence";
-  visionSeed: string;
-  startFrame?: number;
-  loopLength?: number;
-  includeMoodProfile?: boolean;
-  referenceImage?: string | null;
-};
+import {
+  LoopCycleJSON,
+  LoopSequenceDirectorRequest,
+} from "@/lib/directorTypes";
 
 type DirectorErrorResponse = {
   error: string;
@@ -57,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as Partial<LoopDirectorRequest>;
+    const body = (await request.json()) as Partial<LoopSequenceDirectorRequest>;
 
     if (body.mode !== "loop_sequence") {
       return NextResponse.json<DirectorErrorResponse>(
@@ -82,7 +51,8 @@ export async function POST(request: Request) {
 
     const includeMoodProfile = Boolean(body.includeMoodProfile);
 
-    const referenceHint = body.referenceImage
+    const referenceImage = body.images?.[0];
+    const referenceHint = referenceImage
       ? "The user also supplied a base64-encoded reference image. Use it to inform continuity notes and tone, but do not echo the raw string."
       : "No reference image was provided.";
 

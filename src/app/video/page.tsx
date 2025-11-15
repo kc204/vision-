@@ -5,8 +5,14 @@ import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-
-type AspectRatio = "16:9" | "9:16";
+import {
+  AspectRatio,
+  CollectDetailsResponse,
+  CompletePlanResponse,
+  RenderJob,
+  SceneAnswerPayload,
+  VideoPlanDirectorRequest,
+} from "@/lib/directorTypes";
 
 type VisionSeedFormValues = {
   scriptText: string;
@@ -14,104 +20,6 @@ type VisionSeedFormValues = {
   palette: string;
   references: string;
   aspectRatio: AspectRatio;
-};
-
-type SceneDraft = {
-  id: string;
-  title: string;
-  summary: string;
-  question: string;
-};
-
-type SceneAnswerPayload = {
-  sceneId: string;
-  answer: string;
-};
-
-type ContinuityLock = {
-  subject_identity: string;
-  lighting_and_palette: string;
-  camera_grammar: string;
-  environment_motif: string;
-};
-
-type FinalScenePlan = {
-  id: string;
-  segment_title: string;
-  scene_description: string;
-  main_subject: string;
-  camera_movement: string;
-  visual_tone: string;
-  motion: string;
-  mood: string;
-  narrative: string;
-  sound_suggestion: string;
-  text_overlay: string;
-  voice_timing_hint: string;
-  broll_suggestions: string;
-  graphics_callouts: string;
-  editor_notes: string;
-  continuity_lock: ContinuityLock;
-  acceptance_check: string[];
-  followup_answer: string;
-};
-
-type TransitionPlan = {
-  from_scene_id: string;
-  to_scene_id: string;
-  style: string;
-  description: string;
-  motion_design: string;
-  audio_bridge: string;
-};
-
-type ThumbnailConcept = {
-  logline: string;
-  composition: string;
-  color_notes: string;
-  typography: string;
-};
-
-type VisionSeedSummary = {
-  hook: string;
-  story_summary: string;
-  tone_directives: string;
-  palette_notes: string;
-  reference_synthesis: string;
-  aspectRatio: AspectRatio;
-};
-
-type CollectDetailsResponse = {
-  stage: "collect_details";
-  visionSeed: VisionSeedSummary;
-  segmentation: SceneDraft[];
-};
-
-type ExportPayload = {
-  version: string;
-  aspectRatio: AspectRatio;
-  tone: string;
-  palette: string;
-  references: string[];
-  scenes: FinalScenePlan[];
-  transitions: TransitionPlan[];
-  thumbnailConcept: ThumbnailConcept;
-};
-
-type RenderJob = {
-  id: string;
-  status: string;
-  etaSeconds?: number | null;
-};
-
-type CompletePlanResponse = {
-  stage: "complete";
-  visionSeed: VisionSeedSummary;
-  scenes: FinalScenePlan[];
-  transitions: TransitionPlan[];
-  thumbnailConcept: ThumbnailConcept;
-  exportPayload: ExportPayload;
-  renderJob?: RenderJob & { raw?: unknown };
 };
 
 type Stage = "seed" | "questions" | "complete";
@@ -186,19 +94,21 @@ export default function VideoPlanPage() {
     resetFlow();
 
     try {
+      const payload: VideoPlanDirectorRequest = {
+        mode: "video_plan",
+        visionSeed: {
+          scriptText: formValues.scriptText,
+          tone: formValues.tone,
+          palette: formValues.palette,
+          references: parseReferences(formValues.references),
+          aspectRatio: formValues.aspectRatio,
+        },
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "video_plan" as const,
-          visionSeed: {
-            scriptText: formValues.scriptText,
-            tone: formValues.tone,
-            palette: formValues.palette,
-            references: parseReferences(formValues.references),
-            aspectRatio: formValues.aspectRatio,
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -240,8 +150,8 @@ export default function VideoPlanPage() {
       })
     );
 
-    const payload = {
-      type: "video_plan" as const,
+    const payload: VideoPlanDirectorRequest = {
+      mode: "video_plan",
       visionSeed: {
         scriptText: formValues.scriptText,
         tone: formValues.tone,
@@ -302,26 +212,28 @@ export default function VideoPlanPage() {
     setError(null);
 
     try {
+      const payload: VideoPlanDirectorRequest = {
+        mode: "video_plan",
+        visionSeed: {
+          scriptText: formValues.scriptText,
+          tone: formValues.tone,
+          palette: formValues.palette,
+          references: parseReferences(formValues.references),
+          aspectRatio: formValues.aspectRatio,
+        },
+        segmentation: collectResult.segmentation,
+        sceneAnswers: collectResult.segmentation.map((scene) => ({
+          sceneId: scene.id,
+          answer: sceneAnswers[scene.id] ?? "",
+        })),
+        directRender: true,
+        finalPlanOverride: plan,
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "video_plan" as const,
-          visionSeed: {
-            scriptText: formValues.scriptText,
-            tone: formValues.tone,
-            palette: formValues.palette,
-            references: parseReferences(formValues.references),
-            aspectRatio: formValues.aspectRatio,
-          },
-          segmentation: collectResult.segmentation,
-          sceneAnswers: collectResult.segmentation.map((scene) => ({
-            sceneId: scene.id,
-            answer: sceneAnswers[scene.id] ?? "",
-          })),
-          directRender: true,
-          finalPlanOverride: plan,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {

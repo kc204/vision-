@@ -3,33 +3,10 @@
 import { FormEvent, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/image-dropzone";
-
-type ContinuityLock = {
-  subject_identity: string;
-  lighting_and_palette: string;
-  camera_grammar: string;
-  environment_motif: string;
-};
-
-type LoopKeyframe = {
-  frame: number;
-  description: string;
-  camera?: string;
-  motion?: string;
-  lighting?: string;
-};
-
-type LoopCycleJSON = {
-  cycle_id: string;
-  title?: string;
-  beat_summary?: string;
-  prompt: string;
-  start_frame: number;
-  loop_length: number;
-  continuity_lock: ContinuityLock;
-  keyframes?: LoopKeyframe[];
-  mood_profile?: string;
-};
+import {
+  LoopCycleJSON,
+  LoopSequenceDirectorRequest,
+} from "@/lib/directorTypes";
 
 type DirectorError = {
   error: string;
@@ -57,17 +34,19 @@ export default function LoopSequenceBuilderPage() {
     setError(null);
 
     try {
+      const payload: LoopSequenceDirectorRequest = {
+        mode: "loop_sequence",
+        visionSeed,
+        startFrame,
+        loopLength,
+        includeMoodProfile,
+        images: referenceImage ? [referenceImage] : undefined,
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "loop_sequence",
-          visionSeed,
-          startFrame,
-          loopLength,
-          includeMoodProfile,
-          referenceImage,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
