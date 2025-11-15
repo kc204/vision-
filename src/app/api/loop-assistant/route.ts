@@ -1,76 +1,187 @@
 import { NextResponse } from "next/server";
 
-import { callGeminiChat, GeminiChatMessage } from "@/lib/geminiClient";
+import { LOOP_ASSISTANT_SYSTEM_PROMPT } from "@/lib/prompts/loopAssistant";
 
-type ValidationResult =
-  | { ok: true; value: GeminiChatMessage[] }
-  | { ok: false; error: string };
+const LOOP_ASSISTANT_API_URL = process.env.LOOP_ASSISTANT_API_URL?.trim() ?? "";
+const FALLBACK_LOOP_ASSISTANT_API_KEY =
+  process.env.LOOP_ASSISTANT_API_KEY?.trim() ?? "";
+const LOOP_ASSISTANT_API_KEY_HEADER = "x-loop-assistant-api-key";
+
+interface ValidationSuccess {
+  ok: true;
+  messages: ChatMessage[];
+  extras: Record<string, unknown>;
+}
+
+interface ValidationError {
+  ok: false;
+  error: string;
+}
+
+type ValidationResult = ValidationSuccess | ValidationError;
+
+type ChatMessage = {
+  role: string;
+  content: string;
+  [key: string]: unknown;
+};
 
 export async function POST(request: Request) {
-  const systemPrompt = process.env.LOOP_ASSISTANT_SYSTEM_PROMPT;
-  if (!systemPrompt) {
+  if (!LOOP_ASSISTANT_API_URL) {
     return NextResponse.json(
-      { error: "Loop assistant is not configured." },
+      {
+        error:
+          "Loop Assistant is not configured. Missing LOOP_ASSISTANT_API_URL environment variable.",
+      },
       { status: 500 }
     );
   }
 
-  let body: unknown;
+  let json: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    json = await request.json();
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Invalid JSON body" },
+      { status: 400 }
+    );
   }
 
-  if (typeof body !== "object" || body === null) {
-    return NextResponse.json({ error: "Body must be an object" }, { status: 400 });
-  }
-
-  const validation = parseMessages((body as Record<string, unknown>).messages);
+  const validation = validatePayload(json);
   if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+    return NextResponse.json(
+      { error: validation.error },
+      { status: 400 }
+    );
   }
 
-  const result = await callGeminiChat(systemPrompt, validation.value);
-  if (!result.success) {
-    const { status, error, details } = result;
-    const responseBody: Record<string, unknown> = { error };
-    if (details !== undefined) {
-      responseBody.details = details;
-    }
-    return NextResponse.json(responseBody, { status: status ?? 502 });
+  const apiKey =
+    extractApiKeyFromHeaders(request.headers) || FALLBACK_LOOP_ASSISTANT_API_KEY;
+
+  const payload = {
+    ...validation.extras,
+    messages: injectSystemPrompt(validation.messages),
+  };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  return NextResponse.json({ reply: result.reply });
+  let response: Response;
+  try {
+    response = await fetch(LOOP_ASSISTANT_API_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to reach Loop Assistant.";
+    return NextResponse.json(
+      { error: `Loop Assistant request failed to send: ${message}` },
+      { status: 502 }
+    );
+  }
+
+  const proxiedHeaders = cloneHeaders(response.headers);
+  stripHopByHopHeaders(proxiedHeaders);
+
+  return new Response(response.body ?? null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: proxiedHeaders,
+  });
 }
 
-function parseMessages(value: unknown): ValidationResult {
-  if (value === undefined) {
-    return { ok: true, value: [] };
+function validatePayload(input: unknown): ValidationResult {
+  if (!isRecord(input)) {
+    return { ok: false, error: "Body must be a JSON object" };
   }
 
-  if (!Array.isArray(value)) {
+  const { messages, ...extras } = input;
+
+  if (!Array.isArray(messages)) {
     return { ok: false, error: "messages must be an array" };
   }
 
-  const messages: GeminiChatMessage[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) {
-      return { ok: false, error: "Each message must be an object" };
+  const parsed: ChatMessage[] = [];
+  for (const [index, value] of messages.entries()) {
+    if (!isRecord(value)) {
+      return {
+        ok: false,
+        error: `messages[${index}] must be an object`,
+      };
     }
 
-    const { role, content } = entry as Record<string, unknown>;
-    if (role !== "user" && role !== "assistant") {
-      return { ok: false, error: "message role must be user or assistant" };
+    const { role, content, ...rest } = value;
+
+    if (typeof role !== "string" || role.trim().length === 0) {
+      return {
+        ok: false,
+        error: `messages[${index}].role must be a non-empty string`,
+      };
     }
 
-    if (typeof content !== "string") {
-      return { ok: false, error: "message content must be a string" };
+    if (typeof content !== "string" || content.trim().length === 0) {
+      return {
+        ok: false,
+        error: `messages[${index}].content must be a non-empty string`,
+      };
     }
 
-    const normalizedRole: GeminiChatMessage["role"] = role;
-    messages.push({ role: normalizedRole, content });
+    parsed.push({ role, content, ...rest });
   }
 
-  return { ok: true, value: messages };
+  return { ok: true, messages: parsed, extras };
+}
+
+function injectSystemPrompt(messages: ChatMessage[]): ChatMessage[] {
+  const filtered = messages.filter((message) => message.role !== "system");
+  return [
+    {
+      role: "system",
+      content: LOOP_ASSISTANT_SYSTEM_PROMPT,
+    },
+    ...filtered,
+  ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractApiKeyFromHeaders(headers: Headers): string | null {
+  const value = headers.get(LOOP_ASSISTANT_API_KEY_HEADER);
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function cloneHeaders(source: Headers): Headers {
+  const headers = new Headers();
+  source.forEach((value, key) => {
+    headers.set(key, value);
+  });
+  return headers;
+}
+
+function stripHopByHopHeaders(headers: Headers) {
+  const hopByHop = [
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+  ];
+
+  for (const header of hopByHop) {
+    headers.delete(header);
+  }
 }
