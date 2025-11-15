@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
+import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
 import type { DirectorRequest, VideoPlanPayload, VideoPlanResponse } from "@/lib/directorTypes";
 import {
@@ -15,6 +16,7 @@ import {
   shotSizes,
   type VisualOption,
 } from "@/lib/visualOptions";
+import { encodeFiles } from "@/lib/encodeFiles";
 
 const toneOptions: VideoPlanPayload["tone"][] = [
   "informative",
@@ -178,6 +180,7 @@ export default function VideoBuilderPage() {
       const requestPayload: DirectorRequest = {
         mode: "video_plan",
         payload,
+        images: images.length ? images : undefined,
       };
 
       const response = await fetch("/api/director", {
@@ -297,6 +300,14 @@ export default function VideoBuilderPage() {
             />
           ))}
         </div>
+
+        <ImageDropzone
+          files={files}
+          onFilesChange={setFiles}
+          label="Vision Seed images"
+          description="Drop PNG, JPG, or WEBP frames to ground your plan."
+          maxFiles={6}
+        />
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-slate-200">
