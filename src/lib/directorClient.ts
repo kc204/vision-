@@ -17,15 +17,18 @@ const NANO_BANANA_API_URL =
 const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-1.5-flash-latest";
 const VEO_MODEL = process.env.VEO_VIDEO_MODEL ?? "veo-3.1";
 
-export async function callDirectorCore(req: DirectorRequest): Promise<DirectorCoreResult> {
+export async function callDirectorCore(
+  req: DirectorRequest,
+  apiKeyOverride?: string
+): Promise<DirectorCoreResult> {
   try {
     switch (req.mode) {
       case "image_prompt":
-        return await callGeminiImageProvider(req);
+        return await callGeminiImageProvider(req, apiKeyOverride);
       case "video_plan":
-        return await callVeoVideoProvider(req);
+        return await callVeoVideoProvider(req, apiKeyOverride);
       case "loop_sequence":
-        return await callNanoBananaProvider(req);
+        return await callNanoBananaProvider(req, apiKeyOverride);
       default:
         return {
           success: false,
@@ -40,14 +43,19 @@ export async function callDirectorCore(req: DirectorRequest): Promise<DirectorCo
 }
 
 async function callGeminiImageProvider(
-  req: Extract<DirectorRequest, { mode: "image_prompt" }>
+  req: Extract<DirectorRequest, { mode: "image_prompt" }>,
+  apiKeyOverride?: string
 ): Promise<DirectorCoreResult> {
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  const apiKey =
+    getNonEmptyString(apiKeyOverride) ??
+    getNonEmptyString(process.env.GEMINI_API_KEY) ??
+    getNonEmptyString(process.env.GOOGLE_API_KEY);
   if (!apiKey) {
     return {
       success: false,
       provider: "gemini",
-      error: "Missing GEMINI_API_KEY environment variable for Gemini image generation.",
+      error:
+        "Missing API key for Gemini image generation. Provide a key in the request or set GEMINI_API_KEY/GOOGLE_API_KEY.",
     };
   }
 
@@ -134,14 +142,19 @@ async function callGeminiImageProvider(
 }
 
 async function callVeoVideoProvider(
-  req: Extract<DirectorRequest, { mode: "video_plan" }>
+  req: Extract<DirectorRequest, { mode: "video_plan" }>,
+  apiKeyOverride?: string
 ): Promise<DirectorCoreResult> {
-  const apiKey = process.env.VEO_API_KEY ?? process.env.GOOGLE_API_KEY;
+  const apiKey =
+    getNonEmptyString(apiKeyOverride) ??
+    getNonEmptyString(process.env.VEO_API_KEY) ??
+    getNonEmptyString(process.env.GOOGLE_API_KEY);
   if (!apiKey) {
     return {
       success: false,
       provider: "veo-3.1",
-      error: "Missing VEO_API_KEY environment variable for Veo video generation.",
+      error:
+        "Missing API key for Veo video generation. Provide a key in the request or set VEO_API_KEY/GOOGLE_API_KEY.",
     };
   }
 
@@ -227,14 +240,18 @@ async function callVeoVideoProvider(
 }
 
 async function callNanoBananaProvider(
-  req: Extract<DirectorRequest, { mode: "loop_sequence" }>
+  req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
+  apiKeyOverride?: string
 ): Promise<DirectorCoreResult> {
-  const apiKey = process.env.NANO_BANANA_API_KEY;
+  const apiKey =
+    getNonEmptyString(apiKeyOverride) ??
+    getNonEmptyString(process.env.NANO_BANANA_API_KEY);
   if (!apiKey) {
     return {
       success: false,
       provider: "nano-banana",
-      error: "Missing NANO_BANANA_API_KEY environment variable for Nano Banana loops.",
+      error:
+        "Missing API key for Nano Banana loops. Provide a key in the request or set NANO_BANANA_API_KEY.",
     };
   }
 
@@ -656,6 +673,15 @@ function isLikelyUrl(value: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function extractErrorMessage(payload: unknown, fallback: string): string {

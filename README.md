@@ -53,3 +53,4 @@ src/
 - The `/api/director` endpoint expects a JSON POST body that matches one of the `DirectorRequest` variants and returns `{ "text": string }` from the future Director Core integration.
 - The Gemini-based Director Core client is currently a stub and will throw until the service is wired up.
 - Initial persistence is in-memory only; future iterations can add database-backed history.
+- The image, video, and loop assistant builders accept an optional provider API key input. Keys stay in the browser session and are forwarded with the request via the `x-provider-api-key` header so they are never persisted on the server.

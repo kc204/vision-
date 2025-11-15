@@ -27,13 +27,18 @@ export type GeminiChatResult = GeminiChatSuccess | GeminiChatError;
 
 export async function callGeminiChat(
   systemPrompt: string,
-  history: GeminiChatMessage[]
+  history: GeminiChatMessage[],
+  apiKeyOverride?: string
 ): Promise<GeminiChatResult> {
-  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  const apiKey =
+    getNonEmptyString(apiKeyOverride) ??
+    getNonEmptyString(process.env.GEMINI_API_KEY) ??
+    getNonEmptyString(process.env.GOOGLE_API_KEY);
   if (!apiKey) {
     return {
       success: false,
-      error: "Missing GEMINI_API_KEY environment variable for Gemini chat.",
+      error:
+        "Missing API key for Gemini chat. Provide a key in the request or set GEMINI_API_KEY/GOOGLE_API_KEY.",
     };
   }
 
@@ -170,4 +175,13 @@ function extractGeminiErrorMessage(payload: unknown, fallback: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

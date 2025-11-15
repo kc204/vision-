@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
@@ -34,6 +34,13 @@ export default function LoopAssistantPage() {
   const [messageInput, setMessageInput] = useState("");
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
+
+  const apiKeyRef = useRef("");
+
+  useEffect(() => {
+    apiKeyRef.current = apiKey;
+  }, [apiKey]);
 
   useEffect(() => {
     let isActive = true;
@@ -43,9 +50,15 @@ export default function LoopAssistantPage() {
       setError(null);
 
       try {
+        const headers: HeadersInit = { "Content-Type": "application/json" };
+        const trimmedKey = apiKeyRef.current.trim();
+        if (trimmedKey.length > 0) {
+          headers["x-provider-api-key"] = trimmedKey;
+        }
+
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -109,9 +122,15 @@ export default function LoopAssistantPage() {
 
     try {
       const encodedImages = await encodeFiles(files);
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      const trimmedKey = apiKey.trim();
+      if (trimmedKey.length > 0) {
+        headers["x-provider-api-key"] = trimmedKey;
+      }
+
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,
@@ -195,6 +214,24 @@ export default function LoopAssistantPage() {
             label="Reference images (optional)"
             description="Drop in PNG, JPG, or WEBP frames that inform the loop&apos;s tone and composition."
           />
+
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-slate-200">
+              Provider API key (optional)
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Gemini key"
+              className="w-full rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none"
+            />
+            <p className="text-xs text-slate-400">
+              Stored only in this browser session and forwarded with each assistant request.
+            </p>
+          </div>
 
           <div className="space-y-4">
             <div className="max-h-[28rem] space-y-4 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4">
