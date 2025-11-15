@@ -3,9 +3,13 @@ import OpenAI from "openai";
 import {
   cameraAngles,
   shotSizes,
-  lightingStyles,
   colorPalettes,
+  compositionTechniques,
+  lightingVocabulary,
+  motionCues,
+  stylePacks,
   findVisualSnippet,
+  findVisualSnippets,
 } from "@/lib/visualOptions";
 
 type ImagePromptRequest = {
@@ -13,8 +17,11 @@ type ImagePromptRequest = {
   modelChoice: "sdxl" | "flux" | "illustrious";
   cameraAngleId?: string;
   shotSizeId?: string;
-  lightingStyleId?: string;
+  compositionTechniqueId?: string;
+  lightingVocabularyId?: string;
   colorPaletteId?: string;
+  motionCueIds?: string[];
+  stylePackIds?: string[];
 };
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -44,8 +51,29 @@ export async function POST(request: Request) {
 
     const cameraSnippet = findVisualSnippet(cameraAngles, body.cameraAngleId)?.promptSnippet;
     const shotSnippet = findVisualSnippet(shotSizes, body.shotSizeId)?.promptSnippet;
-    const lightingSnippet = findVisualSnippet(lightingStyles, body.lightingStyleId)?.promptSnippet;
+    const compositionSnippet = findVisualSnippet(
+      compositionTechniques,
+      body.compositionTechniqueId
+    )?.promptSnippet;
+    const lightingSnippet = findVisualSnippet(
+      lightingVocabulary,
+      body.lightingVocabularyId
+    )?.promptSnippet;
     const colorSnippet = findVisualSnippet(colorPalettes, body.colorPaletteId)?.promptSnippet;
+    const motionOptions = findVisualSnippets(motionCues, body.motionCueIds);
+    const styleOptions = findVisualSnippets(stylePacks, body.stylePackIds);
+    const motionSnippet =
+      motionOptions.length > 0
+        ? motionOptions
+            .map((option) => `${option.label}: ${option.promptSnippet}`)
+            .join("; ")
+        : undefined;
+    const styleSnippet =
+      styleOptions.length > 0
+        ? styleOptions
+            .map((option) => `${option.label}: ${option.promptSnippet}`)
+            .join("; ")
+        : undefined;
 
     const systemPrompt = `You are Vision Architect — Autonomous Image Composer (ComfyUI Edition).
 You take a casual user description plus some camera/lighting preferences and output one polished positive prompt, one negative prompt with smart negatives, recommended settings, and a short summary.
@@ -55,7 +83,7 @@ If modelChoice is "sdxl" or "flux", use descriptive cinematic language.
 Always include appropriate smart negatives (e.g., bad anatomy, low quality, blurry, watermark, extra limbs, unwanted text).
 Respond ONLY with JSON.`;
 
-    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nLighting: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
+    const userPrompt = `VISION SEED:\n${body.visionSeedText}\n\nMODEL CHOICE:\n${body.modelChoice}\n\nVISUAL PREFERENCES:\nCamera angle: ${cameraSnippet ?? "none specified"}\nShot size: ${shotSnippet ?? "none specified"}\nComposition: ${compositionSnippet ?? "none specified"}\nLighting vocabulary: ${lightingSnippet ?? "none specified"}\nColor palette: ${colorSnippet ?? "none specified"}\nMotion cues: ${motionSnippet ?? "none specified"}\nStyle packs: ${styleSnippet ?? "none specified"}\n\nDesign one powerful, coherent image based on this.\n\nReturn JSON in the following format:\n{\n  "positivePrompt": "...",\n  "negativePrompt": "...",\n  "settings": {\n    "model": "...",\n    "resolution": "...",\n    "sampler": "...",\n    "steps": 40,\n    "cfg": 7,\n    "seed": "..."\n  },\n  "summary": "..."\n}`;
 
     const completion = await openai.chat.completions.create({
       model: MODEL,

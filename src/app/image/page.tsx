@@ -1,13 +1,18 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import {
   cameraAngles,
   shotSizes,
-  lightingStyles,
   colorPalettes,
+  compositionTechniques,
+  lightingVocabulary,
+  motionCues,
+  stylePacks,
   VisualOption,
+  groupOptions,
+  searchOptions,
 } from "@/lib/visualOptions";
 
 const models = [
@@ -37,8 +42,12 @@ export default function ImagePromptBuilderPage() {
   const [modelChoice, setModelChoice] = useState<ModelChoice>("sdxl");
   const [cameraAngleId, setCameraAngleId] = useState<string>("");
   const [shotSizeId, setShotSizeId] = useState<string>("");
-  const [lightingStyleId, setLightingStyleId] = useState<string>("");
+  const [compositionTechniqueId, setCompositionTechniqueId] =
+    useState<string>("");
+  const [lightingVocabularyId, setLightingVocabularyId] = useState<string>("");
   const [colorPaletteId, setColorPaletteId] = useState<string>("");
+  const [motionCueIds, setMotionCueIds] = useState<string[]>([]);
+  const [stylePackIds, setStylePackIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImagePromptResponse | null>(null);
@@ -63,8 +72,12 @@ export default function ImagePromptBuilderPage() {
           modelChoice,
           cameraAngleId: cameraAngleId || undefined,
           shotSizeId: shotSizeId || undefined,
-          lightingStyleId: lightingStyleId || undefined,
+          compositionTechniqueId:
+            compositionTechniqueId || undefined,
+          lightingVocabularyId: lightingVocabularyId || undefined,
           colorPaletteId: colorPaletteId || undefined,
+          motionCueIds: motionCueIds.length ? motionCueIds : undefined,
+          stylePackIds: stylePackIds.length ? stylePackIds : undefined,
         }),
       });
 
@@ -130,29 +143,64 @@ export default function ImagePromptBuilderPage() {
           <legend className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             Optional: Help me dial in the shot
           </legend>
-          <VisualSelect
+          <VisualOptionBrowser
             label="Camera angle"
             options={cameraAngles}
-            value={cameraAngleId}
-            onChange={setCameraAngleId}
+            selectedIds={cameraAngleId ? [cameraAngleId] : []}
+            onSelectionChange={(ids) => setCameraAngleId(ids[0] ?? "")}
+            placeholder="Search cinematic camera angles"
           />
-          <VisualSelect
+          <VisualOptionBrowser
             label="Shot size / framing"
             options={shotSizes}
-            value={shotSizeId}
-            onChange={setShotSizeId}
+            selectedIds={shotSizeId ? [shotSizeId] : []}
+            onSelectionChange={(ids) => setShotSizeId(ids[0] ?? "")}
+            placeholder="Search classic framings"
           />
-          <VisualSelect
-            label="Lighting style"
-            options={lightingStyles}
-            value={lightingStyleId}
-            onChange={setLightingStyleId}
+          <VisualOptionBrowser
+            label="Composition technique"
+            options={compositionTechniques}
+            selectedIds={
+              compositionTechniqueId ? [compositionTechniqueId] : []
+            }
+            onSelectionChange={(ids) =>
+              setCompositionTechniqueId(ids[0] ?? "")
+            }
+            placeholder="Rule of thirds, golden ratio, leading lines..."
+            helperText="Define how the frame guides attention."
           />
-          <VisualSelect
+          <VisualOptionBrowser
+            label="Lighting vocabulary"
+            options={lightingVocabulary}
+            selectedIds={lightingVocabularyId ? [lightingVocabularyId] : []}
+            onSelectionChange={(ids) => setLightingVocabularyId(ids[0] ?? "")}
+            placeholder="Soft wrap, Rembrandt, neon bounce..."
+            helperText="Describe the light quality or technique."
+          />
+          <VisualOptionBrowser
             label="Color mood / palette"
             options={colorPalettes}
-            value={colorPaletteId}
-            onChange={setColorPaletteId}
+            selectedIds={colorPaletteId ? [colorPaletteId] : []}
+            onSelectionChange={(ids) => setColorPaletteId(ids[0] ?? "")}
+            placeholder="Search palettes by tone or vibe"
+          />
+          <VisualOptionBrowser
+            label="Motion cues"
+            options={motionCues}
+            selectedIds={motionCueIds}
+            onSelectionChange={setMotionCueIds}
+            placeholder="Stack movement ideas (whip pan, parallax...)"
+            helperText="Select multiple cues to hint at camera movement."
+            multiple
+          />
+          <VisualOptionBrowser
+            label="Style packs"
+            options={stylePacks}
+            selectedIds={stylePackIds}
+            onSelectionChange={setStylePackIds}
+            placeholder="Search looks like neo noir, anime cel, retro futurism"
+            helperText="Blend stylistic treatments or illustration modes."
+            multiple
           />
         </fieldset>
 
@@ -207,40 +255,200 @@ export default function ImagePromptBuilderPage() {
   );
 }
 
-type VisualSelectProps = {
+type VisualOptionBrowserProps = {
   label: string;
   options: VisualOption[];
-  value: string;
-  onChange: (value: string) => void;
+  selectedIds: string[];
+  onSelectionChange: (ids: string[]) => void;
+  placeholder?: string;
+  helperText?: string;
+  multiple?: boolean;
 };
 
-function VisualSelect({ label, options, value, onChange }: VisualSelectProps) {
+function VisualOptionBrowser({
+  label,
+  options,
+  selectedIds,
+  onSelectionChange,
+  placeholder,
+  helperText,
+  multiple = false,
+}: VisualOptionBrowserProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const groupedOptions = useMemo(() => {
+    const filtered = searchOptions(options, query);
+    return groupOptions(filtered);
+  }, [options, query]);
+
+  const selectedOptions = useMemo(() => {
+    const selectedSet = new Set(selectedIds);
+    return options.filter((option) => selectedSet.has(option.id));
+  }, [options, selectedIds]);
+
+  useEffect(() => {
+    if (expanded) {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+  }, [expanded]);
+
+  const toggleOption = (option: VisualOption) => {
+    if (multiple) {
+      const nextIds = selectedIds.includes(option.id)
+        ? selectedIds.filter((id) => id !== option.id)
+        : [...selectedIds, option.id];
+      onSelectionChange(nextIds);
+      return;
+    }
+
+    if (selectedIds[0] === option.id) {
+      onSelectionChange([]);
+    } else {
+      onSelectionChange([option.id]);
+    }
+    setExpanded(false);
+  };
+
+  const clearSelection = () => {
+    onSelectionChange([]);
+    setQuery("");
+  };
+
+  const clearQuery = () => setQuery("");
+
+  const handleToggleExpanded = () => {
+    setExpanded((previous) => !previous);
+  };
+
+  const noMatches = groupedOptions.every((group) => group.options.length === 0);
+  const hasSelections = selectedOptions.length > 0;
+
   return (
-    <label className="block text-sm">
-      <span className="mb-1 inline-flex items-center gap-2 font-medium text-slate-200">
-        {label}
-        <span className="text-xs font-normal text-slate-400">(optional)</span>
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-      >
-        <option value="" className="text-slate-900">
-          No preference
-        </option>
-        {options.map((option) => (
-          <option key={option.id} value={option.id} title={option.tooltip} className="text-slate-900">
-            {option.label}
-          </option>
-        ))}
-      </select>
-      {value && (
-        <p className="mt-1 text-xs text-slate-400">
-          {options.find((option) => option.id === value)?.tooltip}
-        </p>
+    <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <span className="inline-flex items-center gap-2 font-medium text-slate-200">
+            {label}
+            <span className="text-xs font-normal text-slate-400">
+              (optional{multiple ? ", choose multiple" : ""})
+            </span>
+          </span>
+          {helperText ? (
+            <p className="text-xs text-slate-400">{helperText}</p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasSelections ? (
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="text-xs font-semibold text-canvas-accent hover:underline"
+            >
+              Clear
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleToggleExpanded}
+            className="rounded-lg border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-white/30"
+          >
+            {expanded ? "Hide options" : "Browse options"}
+          </button>
+        </div>
+      </div>
+
+      {hasSelections ? (
+        <div className="space-y-2">
+          <ul className="flex flex-wrap gap-2">
+            {selectedOptions.map((option) => (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleOption(option)}
+                  className="inline-flex items-center gap-2 rounded-full border border-canvas-accent/40 bg-canvas-accent/10 px-3 py-1 text-xs font-semibold text-canvas-accent transition hover:border-canvas-accent hover:bg-canvas-accent/20"
+                  title={`${option.label}: ${option.tooltip}`}
+                >
+                  {option.label}
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="space-y-1 text-xs text-slate-400">
+            {selectedOptions.map((option) => (
+              <p key={option.id}>
+                <span className="font-semibold text-slate-300">{option.label}:</span>{" "}
+                {option.tooltip}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-500">No preference selected.</p>
       )}
-    </label>
+
+      {expanded ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={placeholder ?? "Search or filter"}
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              type="search"
+            />
+            <button
+              type="button"
+              onClick={clearQuery}
+              className="text-xs font-semibold text-slate-300 hover:text-white"
+            >
+              Clear search
+            </button>
+          </div>
+          <div className="max-h-64 space-y-4 overflow-y-auto pr-1">
+            {noMatches ? (
+              <p className="text-xs text-slate-400">No matches. Try a different keyword.</p>
+            ) : (
+              groupedOptions.map((group) => (
+                group.options.length > 0 && (
+                  <div key={group.id} className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {group.label}
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {group.options.map((option) => {
+                        const isSelected = selectedIds.includes(option.id);
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => toggleOption(option)}
+                            className={`rounded-xl border px-3 py-2 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-canvas-accent ${
+                              isSelected
+                                ? "border-canvas-accent bg-canvas-accent/20 text-white"
+                                : "border-white/10 bg-slate-950/60 text-slate-100 hover:border-white/20 hover:bg-slate-900"
+                            }`}
+                            title={option.tooltip}
+                          >
+                            <span className="font-semibold">{option.label}</span>
+                            <span className="mt-1 block text-xs text-slate-300">
+                              {option.tooltip}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
