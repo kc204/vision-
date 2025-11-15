@@ -30,6 +30,12 @@ export default function HomePage() {
           >
             Launch Infinite Cinematic Loop Creator
           </Link>
+          <Link
+            href="/loop-assistant"
+            className="inline-flex items-center justify-center rounded-lg border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:border-white/40"
+          >
+            Launch Loop Assistant
+          </Link>
         </div>
       </div>
       <div className="grid gap-6 md:grid-cols-3">
