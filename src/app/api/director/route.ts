@@ -41,20 +41,40 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await auth();
   const credentials: DirectorProviderCredentials = {};
+
+  const headerApiKey = request.headers
+    .get("x-provider-api-key")
+    ?.trim();
+
+  if (headerApiKey) {
+    credentials.google = { apiKey: headerApiKey };
+    credentials.nanoBanana = { apiKey: headerApiKey };
+  }
+
+  const session = await auth();
 
   const googleAccessToken = session?.providerTokens?.google?.accessToken;
   if (googleAccessToken) {
-    credentials.google = { accessToken: googleAccessToken };
+    credentials.google = {
+      ...(credentials.google ?? {}),
+      accessToken: googleAccessToken,
+    };
   }
 
   const nanoBananaKey = session?.providerTokens?.nanoBanana?.apiKey;
   if (nanoBananaKey) {
-    credentials.nanoBanana = { apiKey: nanoBananaKey };
+    credentials.nanoBanana = {
+      ...(credentials.nanoBanana ?? {}),
+      apiKey: nanoBananaKey,
+    };
   }
 
-  if (REQUIRE_AUTHENTICATED_SESSION && !credentials.google) {
+  const hasGoogleCredential = Boolean(
+    credentials.google?.accessToken ?? credentials.google?.apiKey
+  );
+
+  if (REQUIRE_AUTHENTICATED_SESSION && !hasGoogleCredential) {
     return NextResponse.json(
       { error: "Sign in with Google to access Director Core." },
       { status: 401 }

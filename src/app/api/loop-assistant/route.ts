@@ -36,9 +36,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
+  const headerApiKey = request.headers
+    .get("x-provider-api-key")
+    ?.trim();
+
   const session = await auth();
   const result = await callGeminiChat(systemPrompt, validation.value, {
     googleAccessToken: session?.providerTokens?.google?.accessToken,
+    apiKey: headerApiKey && headerApiKey.length > 0 ? headerApiKey : undefined,
   });
   if (!result.success) {
     const { status, error, details } = result;

@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { encodeFiles } from "@/lib/encodeFiles";
-import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
+import { useProviderApiKey } from "@/hooks/useProviderApiKey";
 
 type LoopAssistantMessage = {
   role: "user" | "assistant";
@@ -44,7 +43,7 @@ export default function LoopAssistantPage() {
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
-  const { status } = useSession();
+  const [providerApiKey, setProviderApiKey] = useProviderApiKey();
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -60,13 +59,7 @@ export default function LoopAssistantPage() {
   }, [useSampleAssistant]);
 
   useEffect(() => {
-    if (status === "loading") {
-      return;
-    }
-
-    if (status !== "authenticated") {
-      setMessages([]);
-      setIsRequesting(false);
+    if (messages.length > 0) {
       return;
     }
 
@@ -77,9 +70,18 @@ export default function LoopAssistantPage() {
       setError(null);
 
       try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+
+        const trimmedKey = providerApiKey.trim();
+        if (trimmedKey) {
+          headers["x-provider-api-key"] = trimmedKey;
+        }
+
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -117,7 +119,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, [status]);
+  }, [messages.length, providerApiKey]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -126,11 +128,6 @@ export default function LoopAssistantPage() {
 
     const trimmed = messageInput.trim();
     if (trimmed.length === 0 || isRequesting) {
-      return;
-    }
-
-    if (status !== "authenticated") {
-      setError("Sign in with Google to continue the loop conversation.");
       return;
     }
 
@@ -149,9 +146,18 @@ export default function LoopAssistantPage() {
     try {
       const encodedImages = await encodeFiles(files);
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      const trimmedKey = providerApiKey.trim();
+      if (trimmedKey) {
+        headers["x-provider-api-key"] = trimmedKey;
+      }
+
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,
@@ -247,7 +253,26 @@ export default function LoopAssistantPage() {
             description="Drop in PNG, JPG, or WEBP frames that inform the loop&apos;s tone and composition."
           />
 
-          <ProviderCredentialPanel description="Loop assistant prompts Gemini chat on your behalf." />
+          <div className="space-y-2">
+            <label
+              htmlFor="loop-provider-api-key"
+              className="text-sm font-semibold text-slate-200"
+            >
+              Provider API key
+            </label>
+            <input
+              id="loop-provider-api-key"
+              type="password"
+              value={providerApiKey}
+              onChange={(event) => setProviderApiKey(event.target.value)}
+              placeholder="Enter your Gemini API key"
+              autoComplete="off"
+              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
+            <p className="text-xs text-slate-400">
+              Keys stay in this browser session and are sent with each request via a secure header.
+            </p>
+          </div>
 
           <div className="space-y-4">
             <div className="max-h-[28rem] space-y-4 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4">
@@ -291,11 +316,9 @@ export default function LoopAssistantPage() {
                   </p>
                 ) : (
                   <span className="text-xs text-slate-400">
-                    {status !== "authenticated"
-                      ? "Sign in with Google to begin the conversation."
-                      : isRequesting
-                        ? "Waiting for the assistant..."
-                        : "Share your direction to keep iterating."}
+                    {isRequesting
+                      ? "Waiting for the assistant..."
+                      : "Share your direction to keep iterating."}
                   </span>
                 )}
                 <button
@@ -303,8 +326,7 @@ export default function LoopAssistantPage() {
                   className="inline-flex items-center rounded-xl bg-canvas-accent px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={
                     isRequesting ||
-                    messageInput.trim().length === 0 ||
-                    status !== "authenticated"
+                    messageInput.trim().length === 0
                   }
                 >
                   {isRequesting ? "Sending" : "Send"}

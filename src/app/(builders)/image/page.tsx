@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import type {
   DirectorMediaAsset,
   DirectorRequest,
@@ -15,6 +13,7 @@ import type {
   ImagePromptPayload,
 } from "@/lib/directorTypes";
 import { encodeFiles } from "@/lib/encodeFiles";
+import { useProviderApiKey } from "@/hooks/useProviderApiKey";
 import {
   atmosphere,
   cameraAngles,
@@ -149,7 +148,7 @@ export default function ImageBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
   const [useSampleSeed, setUseSampleSeed] = useState(false);
-  const { status } = useSession();
+  const [providerApiKey, setProviderApiKey] = useProviderApiKey();
 
   useEffect(() => {
     if (useSampleSeed) {
@@ -239,16 +238,11 @@ export default function ImageBuilderPage() {
     selectedVisualOptions.length > 0 ||
     files.length > 0;
 
-  const canSubmit = hasSeedContent && !isSubmitting && status === "authenticated";
+  const canSubmit = hasSeedContent && !isSubmitting;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
-
-    if (status !== "authenticated") {
-      setError("Sign in with Google to generate prompts.");
-      return;
-    }
 
     setIsSubmitting(true);
     setError(null);
@@ -270,9 +264,18 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      const trimmedKey = providerApiKey.trim();
+      if (trimmedKey) {
+        headers["x-provider-api-key"] = trimmedKey;
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
@@ -485,7 +488,26 @@ export default function ImageBuilderPage() {
           </div>
         </div>
 
-        <ProviderCredentialPanel />
+        <div className="space-y-2">
+          <label
+            htmlFor="image-provider-api-key"
+            className="text-sm font-semibold text-slate-200"
+          >
+            Provider API key
+          </label>
+          <input
+            id="image-provider-api-key"
+            type="password"
+            value={providerApiKey}
+            onChange={(event) => setProviderApiKey(event.target.value)}
+            placeholder="Enter your Gemini API key"
+            autoComplete="off"
+            className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+          />
+          <p className="text-xs text-slate-400">
+            Keys stay in this browser session and are sent with each request via a secure header.
+          </p>
+        </div>
 
         <button
           type="submit"
