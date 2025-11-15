@@ -8,6 +8,7 @@ const navItems = [
   { href: "/image", label: "Image" },
   { href: "/video", label: "Video" },
   { href: "/loop", label: "Loop" },
+  { href: "/loop-assistant", label: "Loop Assistant" },
 ];
 
 export function LayoutShell({ children }: { children: ReactNode }) {
