@@ -37,6 +37,41 @@ type LoopDirectorRequest = {
   referenceImage?: string | null;
 };
 
+type VideoPlanPayload = {
+  visionSeed: string;
+  script: string;
+  tone: string;
+  style: string;
+  aspectRatio: "16:9" | "9:16";
+  lighting?: string;
+  composition?: string;
+};
+
+type VideoPlanDirectorRequest = {
+  mode: "video_plan";
+  payload: VideoPlanPayload;
+};
+
+type VideoPlanScene = {
+  id: string;
+  title: string;
+  summary: string;
+  visuals: string;
+  script: string;
+  audio: string;
+  camera: string;
+  duration: string;
+  [key: string]: unknown;
+};
+
+type VideoPlanResponse = {
+  title: string;
+  planSummary: string;
+  thumbnailConcept: Record<string, unknown>;
+  scenes: VideoPlanScene[];
+  [key: string]: unknown;
+};
+
 type DirectorErrorResponse = {
   error: string;
 };
@@ -57,7 +92,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as Partial<LoopDirectorRequest>;
+    const body = (await request.json()) as
+      | Partial<LoopDirectorRequest>
+      | Partial<VideoPlanDirectorRequest>;
+
+    if (body.mode === "video_plan") {
+      return await handleVideoPlanRequest(body as Partial<VideoPlanDirectorRequest>);
+    }
 
     if (body.mode !== "loop_sequence") {
       return NextResponse.json<DirectorErrorResponse>(
@@ -207,4 +248,182 @@ function tryParseLoopCycles(content: string): LoopCycleJSON[] | null {
   }
 
   return null;
+}
+
+async function handleVideoPlanRequest(
+  body: Partial<VideoPlanDirectorRequest>
+) {
+  if (!body.payload || typeof body.payload !== "object") {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Missing video plan payload" },
+      { status: 400 }
+    );
+  }
+
+  const {
+    visionSeed,
+    script,
+    tone,
+    style,
+    aspectRatio,
+    lighting,
+    composition,
+  } = body.payload as VideoPlanPayload;
+
+  if (!visionSeed || !visionSeed.trim()) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "visionSeed is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!script || !script.trim()) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "script is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!tone || !tone.trim()) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "tone is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!style || !style.trim()) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "style is required" },
+      { status: 400 }
+    );
+  }
+
+  if (aspectRatio !== "16:9" && aspectRatio !== "9:16") {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "aspectRatio must be 16:9 or 9:16" },
+      { status: 400 }
+    );
+  }
+
+  const lightingPreference = lighting && lighting !== "No preference"
+    ? lighting
+    : "No specific lighting preference";
+  const compositionPreference =
+    composition && composition !== "No preference"
+      ? composition
+      : "No specific composition focus";
+
+  const systemPrompt =
+    "You are Visionary Director — craft structured video production plans. Respond strictly with JSON.";
+
+  const userPrompt = `MODE: video_plan
+VISION_SEED: ${visionSeed.trim()}
+SCRIPT: ${script.trim()}
+TONE: ${tone.trim()}
+STYLE: ${style.trim()}
+ASPECT_RATIO: ${aspectRatio}
+LIGHTING_PREFERENCE: ${lightingPreference}
+COMPOSITION_FOCUS: ${compositionPreference}
+
+Design a cohesive thumbnail concept and 5-7 scenes that align to the script beats.
+Each scene should advance the narrative, describe key visuals, call out camera or motion notes, and highlight any audio moments.
+
+Return a JSON object with this structure:
+{
+  "title": "Short campaign title",
+  "planSummary": "High-level overview",
+  "thumbnailConcept": {
+    "summary": "1-2 sentence thumbnail concept",
+    "visuals": "Key imagery",
+    "palette": "Color or lighting notes"
+  },
+  "scenes": [
+    {
+      "id": "scene-1",
+      "title": "Scene title",
+      "summary": "Narrative summary",
+      "visuals": "What we see",
+      "script": "What is said or on-screen copy",
+      "audio": "Music or sound design notes",
+      "camera": "Camera or motion guidance",
+      "duration": "Estimated runtime in seconds"
+    }
+  ]
+}`;
+
+  const completion = await openai.chat.completions.create({
+    model: MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content;
+
+  if (!content) {
+    console.error("OpenAI returned no content for video plan");
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Failed to generate video plan" },
+      { status: 500 }
+    );
+  }
+
+  const parsed = tryParseVideoPlan(content);
+
+  if (!parsed) {
+    console.error("Failed to parse video plan response", content);
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Failed to generate video plan" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json(parsed);
+}
+
+function tryParseVideoPlan(content: string): VideoPlanResponse | null {
+  const candidates = extractJsonCandidates(content);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object") {
+        const plan = parsed as VideoPlanResponse;
+
+        if (
+          plan.thumbnailConcept &&
+          typeof plan.thumbnailConcept === "object" &&
+          Array.isArray(plan.scenes)
+        ) {
+          return plan;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to parse video plan candidate", error);
+    }
+  }
+
+  return null;
+}
+
+function extractJsonCandidates(content: string): string[] {
+  const sanitized = content.trim();
+  const candidates: string[] = [];
+
+  if (sanitized.startsWith("{")) {
+    candidates.push(sanitized);
+  }
+
+  const fencedMatch = sanitized.match(/```json([\s\S]*?)```/i);
+  if (fencedMatch) {
+    candidates.push(fencedMatch[1].trim());
+  }
+
+  const objectMatch = sanitized.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    candidates.push(objectMatch[0]);
+  }
+
+  return candidates;
 }
