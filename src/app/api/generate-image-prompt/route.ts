@@ -11,6 +11,7 @@ import {
   findVisualSnippet,
   findVisualSnippets,
 } from "@/lib/visualOptions";
+import { parseStructuredText } from "@/lib/imagePromptParser";
 
 type ImagePromptRequest = {
   visionSeedText: string;
@@ -108,6 +109,14 @@ Respond ONLY with JSON.`;
       const parsed = JSON.parse(content);
       return NextResponse.json(parsed);
     } catch (parseError) {
+      const structured = parseStructuredText(content);
+      if (structured) {
+        console.warn(
+          "Falling back to structured text parsing for image prompt response"
+        );
+        return NextResponse.json(structured);
+      }
+
       console.error("Failed to parse OpenAI response", parseError, content);
       return NextResponse.json(
         { error: "Failed to generate image prompt" },

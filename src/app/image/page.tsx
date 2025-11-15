@@ -27,14 +27,8 @@ type ImagePromptResponse = {
   positivePrompt: string;
   negativePrompt: string;
   summary: string;
-  settings: {
-    model: string;
-    resolution: string;
-    sampler: string;
-    steps: number;
-    cfg: number;
-    seed: string;
-  };
+  settings: Record<string, string | number>;
+  moodMemory?: string;
 };
 
 export default function ImagePromptBuilderPage() {
@@ -483,6 +477,7 @@ type SettingsCardProps = {
 
 function SettingsCard({ settings }: SettingsCardProps) {
   const settingsText = JSON.stringify(settings, null, 2);
+  const entries = Object.entries(settings ?? {});
   return (
     <article className="rounded-2xl border border-white/10 bg-white/5 p-5">
       <header className="flex items-center justify-between">
@@ -491,14 +486,19 @@ function SettingsCard({ settings }: SettingsCardProps) {
         </h2>
         <CopyButton text={settingsText} label="Copy settings" />
       </header>
-      <dl className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-200 sm:grid-cols-2">
-        <Setting label="Model" value={settings.model} />
-        <Setting label="Resolution" value={settings.resolution} />
-        <Setting label="Sampler" value={settings.sampler} />
-        <Setting label="Steps" value={settings.steps.toString()} />
-        <Setting label="CFG" value={settings.cfg.toString()} />
-        <Setting label="Seed" value={settings.seed} />
-      </dl>
+      {entries.length > 0 ? (
+        <dl className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-200 sm:grid-cols-2">
+          {entries.map(([label, value]) => (
+            <Setting
+              key={label}
+              label={formatSettingLabel(label)}
+              value={String(value)}
+            />
+          ))}
+        </dl>
+      ) : (
+        <p className="mt-3 text-sm text-slate-300">No settings provided.</p>
+      )}
     </article>
   );
 }
@@ -515,4 +515,21 @@ function Setting({ label, value }: SettingProps) {
       <dd className="mt-1 font-medium text-white">{value}</dd>
     </div>
   );
+}
+
+function formatSettingLabel(label: string): string {
+  const cleaned = label.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) {
+    return label;
+  }
+
+  const words = cleaned.split(/\s+/);
+  return words
+    .map((word) => {
+      if (word.length <= 3) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
 }

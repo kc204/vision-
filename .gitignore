@@ -3,6 +3,7 @@ node_modules/
 .env*
 out/
 .DS_Store
+.tmp-test/
 
 # Logs
 npm-debug.log*
