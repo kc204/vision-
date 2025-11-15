@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
@@ -25,11 +25,68 @@ import {
   type VisualOption,
 } from "@/lib/visualOptions";
 
+const SAMPLE_IMAGE_SELECTIONS: Readonly<ImagePromptPayload["selectedOptions"]> = {
+  cameraAngles: ["low_angle"],
+  shotSizes: ["medium"],
+  composition: ["rule_of_thirds"],
+  cameraMovement: ["steady_push"],
+  lightingStyles: ["split"],
+  colorPalettes: ["vaporwave"],
+  atmosphere: ["urban_noir_rain"],
+};
+
+const SAMPLE_IMAGE_SEED: Readonly<{
+  subjectFocus: string;
+  environment: string;
+  compositionNotes: string;
+  lightingNotes: string;
+  styleNotes: string;
+  symbolismNotes: string;
+  atmosphereNotes: string;
+  outputIntent: string;
+  constraints: string;
+  moodProfile: string;
+  model: ImagePromptPayload["model"];
+}> = {
+  subjectFocus:
+    "Weathered detective gripping an encrypted data shard, eyes locked with determination.",
+  environment:
+    "Rain-slicked megacity alley, neon kanji reflecting off puddles beside humming vending drones.",
+  compositionNotes:
+    "Low three-quarter composition with lens flare cutting diagonally, subject framed on the left third.",
+  lightingNotes:
+    "Split lighting from magenta signage versus teal taxi glow, rimmed with cool backlight mist.",
+  styleNotes:
+    "Photoreal cinematic still rendered in Flux, with subtle film grain and anamorphic bokeh.",
+  symbolismNotes:
+    "Data shard glows like a heart, signaling fragile hope amid corporate oppression.",
+  atmosphereNotes:
+    "City steam, distant siren haze, rain streaks tracking down chrome surfaces.",
+  outputIntent: "Streaming series key art poster for episode reveal night.",
+  constraints:
+    "Keep composition printable in 24x36 poster ratio, maintain SFW wardrobe details.",
+  moodProfile:
+    "Neo-noir resilience with melancholic optimism, neon palette anchored by muted shadows.",
+  model: "flux",
+};
+
 const modelOptions: Array<{ value: ImagePromptPayload["model"]; label: string }> = [
   { value: "sdxl", label: "SDXL" },
   { value: "flux", label: "Flux" },
   { value: "illustrious", label: "Illustrious (Anime)" },
 ];
+
+function createEmptySelectedOptions(): ImagePromptPayload["selectedOptions"] {
+  return {
+    cameraAngles: [],
+    shotSizes: [],
+    composition: [],
+    cameraMovement: [],
+    lightingStyles: [],
+    colorPalettes: [],
+    atmosphere: [],
+  };
+}
 
 type PromptSections = {
   positive: string;
@@ -84,20 +141,53 @@ export default function ImageBuilderPage() {
   const [moodProfile, setMoodProfile] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<
     ImagePromptPayload["selectedOptions"]
-  >({
-    cameraAngles: [],
-    shotSizes: [],
-    composition: [],
-    cameraMovement: [],
-    lightingStyles: [],
-    colorPalettes: [],
-    atmosphere: [],
-  });
+  >(() => createEmptySelectedOptions());
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
+  const [useSampleSeed, setUseSampleSeed] = useState(false);
+
+  useEffect(() => {
+    if (useSampleSeed) {
+      setSubjectFocus(SAMPLE_IMAGE_SEED.subjectFocus);
+      setEnvironment(SAMPLE_IMAGE_SEED.environment);
+      setCompositionNotes(SAMPLE_IMAGE_SEED.compositionNotes);
+      setLightingNotes(SAMPLE_IMAGE_SEED.lightingNotes);
+      setStyleNotes(SAMPLE_IMAGE_SEED.styleNotes);
+      setSymbolismNotes(SAMPLE_IMAGE_SEED.symbolismNotes);
+      setAtmosphereNotes(SAMPLE_IMAGE_SEED.atmosphereNotes);
+      setOutputIntent(SAMPLE_IMAGE_SEED.outputIntent);
+      setConstraints(SAMPLE_IMAGE_SEED.constraints);
+      setMoodProfile(SAMPLE_IMAGE_SEED.moodProfile);
+      setModel(SAMPLE_IMAGE_SEED.model);
+      setSelectedOptions({
+        cameraAngles: [...SAMPLE_IMAGE_SELECTIONS.cameraAngles],
+        shotSizes: [...SAMPLE_IMAGE_SELECTIONS.shotSizes],
+        composition: [...SAMPLE_IMAGE_SELECTIONS.composition],
+        cameraMovement: [...SAMPLE_IMAGE_SELECTIONS.cameraMovement],
+        lightingStyles: [...SAMPLE_IMAGE_SELECTIONS.lightingStyles],
+        colorPalettes: [...SAMPLE_IMAGE_SELECTIONS.colorPalettes],
+        atmosphere: [...SAMPLE_IMAGE_SELECTIONS.atmosphere],
+      });
+      setFiles([]);
+    } else {
+      setSubjectFocus("");
+      setEnvironment("");
+      setCompositionNotes("");
+      setLightingNotes("");
+      setStyleNotes("");
+      setSymbolismNotes("");
+      setAtmosphereNotes("");
+      setOutputIntent("");
+      setConstraints("");
+      setMoodProfile("");
+      setModel("sdxl");
+      setSelectedOptions(createEmptySelectedOptions());
+      setFiles([]);
+    }
+  }, [useSampleSeed]);
 
   const manualVisionSeedText = useMemo(() => {
     const sections = [
@@ -243,16 +333,27 @@ export default function ImageBuilderPage() {
         onSubmit={handleSubmit}
         className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
-        <header className="space-y-3">
-          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
-            Vision Architect
-          </p>
-          <h1 className="text-3xl font-semibold text-white">
-            Build a cinematic still image prompt
-          </h1>
-          <p className="text-sm text-slate-300">
-            Fill in the Vision Seed sections, pick cinematic controls, and let the Director Core translate everything into SDXL, Flux, or Illustrious language.
-          </p>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+              Vision Architect
+            </p>
+            <h1 className="text-3xl font-semibold text-white">
+              Build a cinematic still image prompt
+            </h1>
+            <p className="text-sm text-slate-300">
+              Fill in the Vision Seed sections, pick cinematic controls, and let the Director Core translate everything into SDXL, Flux, or Illustrious language.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-white/30 bg-slate-900 text-canvas-accent focus:ring-canvas-accent"
+              checked={useSampleSeed}
+              onChange={(event) => setUseSampleSeed(event.target.checked)}
+            />
+            Use sample data
+          </label>
         </header>
 
         <SeedSection
