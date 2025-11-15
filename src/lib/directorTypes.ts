@@ -1,14 +1,18 @@
+export type VisualSelectionMap = {
+  cameraAngles: string[];
+  shotSizes: string[];
+  composition: string[];
+  cameraMovement: string[];
+  lightingStyles: string[];
+  colorPalettes: string[];
+  atmosphere: string[];
+};
+
 export type ImagePromptDirectorRequest = {
   type: "image_prompt";
   visionSeedText: string;
   modelChoice: "sdxl" | "flux" | "illustrious";
-  cameraAngleId?: string;
-  shotSizeId?: string;
-  compositionTechniqueId?: string;
-  lightingVocabularyId?: string;
-  colorPaletteId?: string;
-  motionCueIds?: string[];
-  stylePackIds?: string[];
+  selectedOptions: VisualSelectionMap;
 };
 
 export type AspectRatio = "16:9" | "9:16";
