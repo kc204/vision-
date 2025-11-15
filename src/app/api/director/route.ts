@@ -6,6 +6,7 @@ import type {
   ImagePromptPayload,
   VideoPlanPayload,
   LoopSequencePayload,
+  DirectorCoreResult,
 } from "@/lib/directorTypes";
 
 type UnknownRecord = Record<string, unknown>;
@@ -36,8 +37,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const text = await callDirectorCore(validation.value);
-    return NextResponse.json({ text });
+    const result = await callDirectorCore(validation.value);
+    if (isDirectorCoreError(result)) {
+      const status = result.status ?? 502;
+      return NextResponse.json(
+        {
+          error: result.error,
+          provider: result.provider,
+          details: result.details ?? null,
+        },
+        { status }
+      );
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Director Core invocation failed", error);
     return NextResponse.json(
@@ -45,6 +58,13 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function isDirectorCoreError(result: DirectorCoreResult): result is Extract<
+  DirectorCoreResult,
+  { success: false }
+> {
+  return result.success === false;
 }
 
 function validateDirectorRequest(payload: unknown): ValidationResult {

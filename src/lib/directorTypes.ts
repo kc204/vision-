@@ -60,6 +60,63 @@ export type DirectorRequest =
   | { mode: "video_plan"; payload: VideoPlanPayload; images?: string[] }
   | { mode: "loop_sequence"; payload: LoopSequencePayload; images?: string[] };
 
+export type GeneratedImage = {
+  mimeType: string;
+  data: string;
+  altText?: string;
+};
+
+export type GeneratedVideo = {
+  url?: string;
+  mimeType?: string;
+  base64?: string;
+  posterImage?: string;
+  durationSeconds?: number;
+  frameRate?: number;
+  frames?: string[];
+};
+
+export type LoopSequenceResult = {
+  frames: GeneratedImage[];
+  loopLength?: number | null;
+  frameRate?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type DirectorCoreSuccess =
+  | {
+      success: true;
+      mode: "image_prompt";
+      provider: "gemini";
+      images: GeneratedImage[];
+      promptText?: string;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      success: true;
+      mode: "video_plan";
+      provider: "veo-3.1";
+      videos: GeneratedVideo[];
+      storyboard?: unknown;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      success: true;
+      mode: "loop_sequence";
+      provider: "nano-banana";
+      loop: LoopSequenceResult;
+    };
+
+export type DirectorCoreError = {
+  success: false;
+  error: string;
+  provider?: string;
+  status?: number;
+  details?: unknown;
+};
+
+export type DirectorCoreResult = DirectorCoreSuccess | DirectorCoreError;
+
 export type SceneJSON = {
   segment_title: string;
   scene_description: string;
