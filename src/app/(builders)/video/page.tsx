@@ -162,7 +162,6 @@ export default function VideoBuilderPage() {
     setVisualStyle(activePlan.visual_style);
     setAspectRatio(activePlan.aspect_ratio);
     setMoodProfile(activePlan.mood_profile);
-    setApiKey(activePlan.api_key);
     setCameraAngleSelection([
       ...activePlan.cinematic_control_options.cameraAngles,
     ]);
