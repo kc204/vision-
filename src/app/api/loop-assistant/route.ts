@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callGeminiChat, GeminiChatMessage } from "@/lib/geminiClient";
 
 type ValidationResult =
@@ -36,9 +35,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const session = await auth();
+  const apiKey = extractGeminiApiKey(request, bodyRecord);
   const result = await callGeminiChat(systemPrompt, validation.value, {
-    googleAccessToken: session?.providerTokens?.google?.accessToken,
+    apiKey: apiKey ?? undefined,
   });
   if (!result.success) {
     const { status, error, details } = result;
@@ -81,4 +80,64 @@ function parseMessages(value: unknown): ValidationResult {
   }
 
   return { ok: true, value: messages };
+}
+
+function extractGeminiApiKey(
+  request: Request,
+  body: Record<string, unknown>
+): string | null {
+  const headerKey = normalizeApiKey(request.headers.get("x-provider-api-key"));
+  if (headerKey) {
+    return headerKey;
+  }
+
+  const providerKeys = body.providerKeys;
+  if (isRecord(providerKeys)) {
+    const providerKey = findFirstKey(providerKeys, [
+      "gemini",
+      "geminiApiKey",
+      "gemini_api_key",
+      "google",
+      "googleApiKey",
+      "google_api_key",
+    ]);
+    if (providerKey) {
+      return providerKey;
+    }
+  }
+
+  return (
+    normalizeApiKey(body.geminiApiKey) ??
+    normalizeApiKey(body.googleApiKey) ??
+    normalizeApiKey(body.providerApiKey) ??
+    normalizeApiKey(body.apiKey)
+  );
+}
+
+function normalizeApiKey(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function findFirstKey(
+  source: Record<string, unknown>,
+  keys: string[]
+): string | null {
+  for (const key of keys) {
+    if (key in source) {
+      const value = normalizeApiKey(source[key]);
+      if (value) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
