@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
@@ -41,10 +41,35 @@ const optionGroups: Array<{
   { key: "atmosphere", label: "Atmosphere & effects", options: atmosphere },
 ];
 
+const SAMPLE_LOOP_PLAN: {
+  visionSeedText: string;
+  startFrameDescription: string;
+  loopLength: number;
+  moodProfile: string;
+  selectedOptions: LoopSelectedOptions;
+} = {
+  visionSeedText:
+    "Synthwave city loop bathed in neon haze, cyclical chase between chrome android courier and drifting police drones.",
+  startFrameDescription:
+    "Nighttime rain-slick alley, neon billboards reflecting off puddles as the android crouches to launch the delivery cycle.",
+  loopLength: 6,
+  moodProfile:
+    "Keep the vaporwave palette with electric magenta highlights, persistent rainfall shimmer, and a pulse of suspenseful synth bass.",
+  selectedOptions: {
+    cameraAngles: ["low_angle"],
+    shotSizes: ["medium"],
+    composition: ["split"],
+    cameraMovement: ["steady_push"],
+    lightingStyles: ["neon_bounce"],
+    colorPalettes: ["vaporwave"],
+    atmosphere: ["urban_noir_rain"],
+  },
+};
+
 export default function LoopBuilderPage() {
   const [visionSeedText, setVisionSeedText] = useState("");
   const [startFrameDescription, setStartFrameDescription] = useState("");
-  const [loopLength, setLoopLength] = useState<number | null>(4);
+  const [loopLength, setLoopLength] = useState<number | null>(null);
   const [moodProfile, setMoodProfile] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<LoopSelectedOptions>({
     cameraAngles: [],
@@ -59,6 +84,43 @@ export default function LoopBuilderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
+  const [useSampleLoop, setUseSampleLoop] = useState(false);
+
+  useEffect(() => {
+    if (useSampleLoop) {
+      setVisionSeedText(SAMPLE_LOOP_PLAN.visionSeedText);
+      setStartFrameDescription(SAMPLE_LOOP_PLAN.startFrameDescription);
+      setLoopLength(SAMPLE_LOOP_PLAN.loopLength);
+      setMoodProfile(SAMPLE_LOOP_PLAN.moodProfile);
+      setSelectedOptions({
+        cameraAngles: [...SAMPLE_LOOP_PLAN.selectedOptions.cameraAngles],
+        shotSizes: [...SAMPLE_LOOP_PLAN.selectedOptions.shotSizes],
+        composition: [...SAMPLE_LOOP_PLAN.selectedOptions.composition],
+        cameraMovement: [...SAMPLE_LOOP_PLAN.selectedOptions.cameraMovement],
+        lightingStyles: [...SAMPLE_LOOP_PLAN.selectedOptions.lightingStyles],
+        colorPalettes: [...SAMPLE_LOOP_PLAN.selectedOptions.colorPalettes],
+        atmosphere: [...SAMPLE_LOOP_PLAN.selectedOptions.atmosphere],
+      });
+    } else {
+      setVisionSeedText("");
+      setStartFrameDescription("");
+      setLoopLength(null);
+      setMoodProfile("");
+      setSelectedOptions({
+        cameraAngles: [],
+        shotSizes: [],
+        composition: [],
+        cameraMovement: [],
+        lightingStyles: [],
+        colorPalettes: [],
+        atmosphere: [],
+      });
+    }
+
+    setFiles([]);
+    setCycles(null);
+    setError(null);
+  }, [useSampleLoop]);
 
   const canSubmit = useMemo(() => {
     return (
@@ -147,16 +209,27 @@ export default function LoopBuilderPage() {
         onSubmit={handleSubmit}
         className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
-        <header className="space-y-3">
-          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
-            Infinite Cinematic Loop Creator
-          </p>
-          <h1 className="text-3xl font-semibold text-white">
-            Map an endless cinematic loop
-          </h1>
-          <p className="text-sm text-slate-300">
-            Describe the dreamlike loop you want, set the initial frame, and let the Director Core forecast each cycle with continuity locks.
-          </p>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+              Infinite Cinematic Loop Creator
+            </p>
+            <h1 className="text-3xl font-semibold text-white">
+              Map an endless cinematic loop
+            </h1>
+            <p className="text-sm text-slate-300">
+              Describe the dreamlike loop you want, set the initial frame, and let the Director Core forecast each cycle with continuity locks.
+            </p>
+          </div>
+          <label className="flex items-center justify-end gap-2 text-xs font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={useSampleLoop}
+              onChange={(event) => setUseSampleLoop(event.target.checked)}
+              className="h-4 w-4 rounded border border-white/20 bg-slate-900/60 text-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
+            Use sample data
+          </label>
         </header>
 
         <label className="block space-y-2">
