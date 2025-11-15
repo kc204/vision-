@@ -4,13 +4,57 @@ import { useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
+import { Tooltip } from "@/components/Tooltip";
 import type { DirectorRequest, LoopCycleJSON, LoopSequencePayload } from "@/lib/directorTypes";
+import {
+  atmosphere,
+  cameraAngles,
+  cameraMovement,
+  colorPalettes,
+  composition,
+  lightingStyles,
+  shotSizes,
+  type VisualOption,
+} from "@/lib/visualOptions";
+
+type LoopSelectedOptions = {
+  cameraAngles: string[];
+  shotSizes: string[];
+  composition: string[];
+  cameraMovement: string[];
+  lightingStyles: string[];
+  colorPalettes: string[];
+  atmosphere: string[];
+};
+
+const optionGroups: Array<{
+  key: keyof LoopSelectedOptions;
+  label: string;
+  options: VisualOption[];
+}> = [
+  { key: "cameraAngles", label: "Camera angles", options: cameraAngles },
+  { key: "shotSizes", label: "Shot sizes", options: shotSizes },
+  { key: "composition", label: "Composition", options: composition },
+  { key: "cameraMovement", label: "Camera movement", options: cameraMovement },
+  { key: "lightingStyles", label: "Lighting styles", options: lightingStyles },
+  { key: "colorPalettes", label: "Color palettes", options: colorPalettes },
+  { key: "atmosphere", label: "Atmosphere & effects", options: atmosphere },
+];
 
 export default function LoopBuilderPage() {
   const [visionSeedText, setVisionSeedText] = useState("");
   const [startFrameDescription, setStartFrameDescription] = useState("");
   const [loopLength, setLoopLength] = useState<number | null>(4);
   const [moodProfile, setMoodProfile] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState<LoopSelectedOptions>({
+    cameraAngles: [],
+    shotSizes: [],
+    composition: [],
+    cameraMovement: [],
+    lightingStyles: [],
+    colorPalettes: [],
+    atmosphere: [],
+  });
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +84,28 @@ export default function LoopBuilderPage() {
         loop_length: typeof loopLength === "number" ? loopLength : null,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
       };
+
+      if (selectedOptions.cameraAngles.length > 0) {
+        payload.cameraAngles = selectedOptions.cameraAngles;
+      }
+      if (selectedOptions.shotSizes.length > 0) {
+        payload.shotSizes = selectedOptions.shotSizes;
+      }
+      if (selectedOptions.composition.length > 0) {
+        payload.composition = selectedOptions.composition;
+      }
+      if (selectedOptions.cameraMovement.length > 0) {
+        payload.cameraMovement = selectedOptions.cameraMovement;
+      }
+      if (selectedOptions.lightingStyles.length > 0) {
+        payload.lightingStyles = selectedOptions.lightingStyles;
+      }
+      if (selectedOptions.colorPalettes.length > 0) {
+        payload.colorPalettes = selectedOptions.colorPalettes;
+      }
+      if (selectedOptions.atmosphere.length > 0) {
+        payload.atmosphere = selectedOptions.atmosphere;
+      }
 
       const requestPayload: DirectorRequest = {
         mode: "loop_sequence",
@@ -146,6 +212,26 @@ export default function LoopBuilderPage() {
           description="Drop PNG, JPG, or WEBP frames to influence the loop mood."
           maxFiles={6}
         />
+
+        <fieldset className="space-y-6 rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+          <legend className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Cinematic controls
+          </legend>
+          {optionGroups.map((group) => (
+            <OptionGrid
+              key={group.key}
+              label={group.label}
+              options={group.options}
+              selectedIds={selectedOptions[group.key]}
+              onToggle={(id) =>
+                setSelectedOptions((previous) => ({
+                  ...previous,
+                  [group.key]: toggleSelection(previous[group.key], id),
+                }))
+              }
+            />
+          ))}
+        </fieldset>
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-slate-200">
@@ -292,6 +378,57 @@ function Detail({ label, value }: { label: string; value: string }) {
       <p className="mt-1 whitespace-pre-wrap text-slate-100">{value}</p>
     </div>
   );
+}
+
+function OptionGrid({
+  label,
+  options,
+  selectedIds,
+  onToggle,
+}: {
+  label: string;
+  options: VisualOption[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-slate-200">{label}</h2>
+        <Tooltip content="Hover each option to learn how it shapes the shot.">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-slate-900/60 text-[10px] font-semibold text-slate-200">
+            ?
+          </span>
+        </Tooltip>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => {
+          const isActive = selectedIds.includes(option.id);
+          return (
+            <Tooltip key={option.id} content={option.tooltip}>
+              <button
+                type="button"
+                onClick={() => onToggle(option.id)}
+                className={`group relative rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                  isActive
+                    ? "border-canvas-accent bg-canvas-accent/20 text-white"
+                    : "border-white/10 bg-slate-900/50 text-slate-200 hover:border-white/20"
+                }`}
+              >
+                {option.label}
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function toggleSelection(list: string[], id: string): string[] {
+  return list.includes(id)
+    ? list.filter((value) => value !== id)
+    : [...list, id];
 }
 
 async function encodeFiles(files: File[]): Promise<string[]> {
