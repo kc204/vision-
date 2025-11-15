@@ -27,6 +27,13 @@ type ParsedStorybeat = {
 const STORYBEAT_CODE_BLOCK_REGEX = /```json\s*([\s\S]*?)```/gi;
 const STORYBEAT_INLINE_REGEX = /(\{[\s\S]*?"storybeat"[\s\S]*?\})/gi;
 
+const SAMPLE_LOOP_ASSISTANT = {
+  startFrameDescription:
+    "A moody twilight establishing frame of a rain-slicked city rooftop, neon signage flickering against low clouds.",
+  messageInput:
+    "Can you draft a looping beat that keeps the camera orbiting our protagonist while the neon reflections pulse?",
+};
+
 export default function LoopAssistantPage() {
   const [startFrameDescription, setStartFrameDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -34,13 +41,20 @@ export default function LoopAssistantPage() {
   const [messageInput, setMessageInput] = useState("");
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState("");
-
-  const apiKeyRef = useRef("");
+  const [useSampleAssistant, setUseSampleAssistant] = useState(false);
 
   useEffect(() => {
-    apiKeyRef.current = apiKey;
-  }, [apiKey]);
+    if (useSampleAssistant) {
+      setStartFrameDescription(SAMPLE_LOOP_ASSISTANT.startFrameDescription);
+      setMessageInput(SAMPLE_LOOP_ASSISTANT.messageInput);
+      setFiles([]);
+      return;
+    }
+
+    setStartFrameDescription("");
+    setMessageInput("");
+    setFiles([]);
+  }, [useSampleAssistant]);
 
   useEffect(() => {
     let isActive = true;
@@ -173,17 +187,28 @@ export default function LoopAssistantPage() {
   return (
     <section className="grid gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
       <div className="space-y-8">
-        <header className="space-y-3">
-          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
-            Loop Assistant
-          </p>
-          <h1 className="text-3xl font-semibold text-white">
-            Collaborate on cinematic story loops
-          </h1>
-          <p className="text-sm text-slate-300">
-            Set the opening frame, drop in optional visual references, and chat
-            with the assistant to co-develop evolving loop storybeats.
-          </p>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+              Loop Assistant
+            </p>
+            <h1 className="text-3xl font-semibold text-white">
+              Collaborate on cinematic story loops
+            </h1>
+            <p className="text-sm text-slate-300">
+              Set the opening frame, drop in optional visual references, and
+              chat with the assistant to co-develop evolving loop storybeats.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200 shadow-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-white/20 bg-slate-900 text-canvas-accent focus:ring-canvas-accent"
+              checked={useSampleAssistant}
+              onChange={(event) => setUseSampleAssistant(event.target.checked)}
+            />
+            Use sample data
+          </label>
         </header>
 
         <div className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur">
