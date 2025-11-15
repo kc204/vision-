@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { callDirectorCore, DirectorCoreError } from "@/lib/directorClient";
+import { auth } from "@/lib/auth";
+import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
@@ -15,12 +16,8 @@ type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
 
-const DIRECTOR_API_KEY_HEADER = "x-provider-api-key";
-const REQUIRE_DIRECTOR_API_KEY = parseEnvBoolean(
-  process.env.DIRECTOR_CORE_REQUIRE_API_KEY
-);
-const FALLBACK_DIRECTOR_API_KEY = getNonEmptyString(
-  process.env.DIRECTOR_CORE_API_KEY
+const REQUIRE_AUTHENTICATED_SESSION = parseEnvBoolean(
+  process.env.DIRECTOR_CORE_REQUIRE_API_KEY ?? "true"
 );
 
 export async function POST(request: Request) {
@@ -35,27 +32,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const bodyRecord = isRecord(body) ? (body as UnknownRecord) : null;
-  const apiKeyFromBody = bodyRecord ? getNonEmptyString(bodyRecord.apiKey) : undefined;
-  const apiKeyFromHeaders = extractApiKeyFromHeaders(request.headers);
-  const apiKey = apiKeyFromHeaders ?? apiKeyFromBody ?? FALLBACK_DIRECTOR_API_KEY;
-
-  if (REQUIRE_DIRECTOR_API_KEY && !apiKey) {
-    return NextResponse.json(
-      { error: "An API key is required to call Director Core." },
-      { status: 401 }
-    );
-  }
-
-  let payloadForValidation: unknown = body;
-
-  if (bodyRecord && "apiKey" in bodyRecord) {
-    const cloned: UnknownRecord = { ...bodyRecord };
-    delete cloned.apiKey;
-    payloadForValidation = cloned;
-  }
-
-  const validation = validateDirectorRequest(payloadForValidation);
+  const validation = validateDirectorRequest(body);
 
   if (!validation.ok) {
     return NextResponse.json(
@@ -64,8 +41,28 @@ export async function POST(request: Request) {
     );
   }
 
+  const session = await auth();
+  const credentials: DirectorProviderCredentials = {};
+
+  const googleAccessToken = session?.providerTokens?.google?.accessToken;
+  if (googleAccessToken) {
+    credentials.google = { accessToken: googleAccessToken };
+  }
+
+  const nanoBananaKey = session?.providerTokens?.nanoBanana?.apiKey;
+  if (nanoBananaKey) {
+    credentials.nanoBanana = { apiKey: nanoBananaKey };
+  }
+
+  if (REQUIRE_AUTHENTICATED_SESSION && !credentials.google) {
+    return NextResponse.json(
+      { error: "Sign in with Google to access Director Core." },
+      { status: 401 }
+    );
+  }
+
   try {
-    const result = await callDirectorCore(validation.value, apiKey);
+    const result = await callDirectorCore(validation.value, credentials);
     if (isDirectorCoreError(result)) {
       const status = result.status ?? 502;
       return NextResponse.json(
@@ -81,27 +78,6 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Director Core invocation failed", error);
-
-    if (error instanceof DirectorCoreError) {
-      const status = error.status ?? resolveStatusFromCode(error.code);
-      const responseBody: UnknownRecord = {
-        error: error.message,
-        code: error.code,
-      };
-
-      const details = sanitizeErrorDetails(error.details);
-      if (details !== undefined) {
-        responseBody.details = details;
-      }
-
-      if (error.fallbackResult) {
-        responseBody.fallback = formatSuccessPayload(error.fallbackResult);
-      }
-
-      return NextResponse.json(responseBody, {
-        status: status ?? 500,
-      });
-    }
 
     return NextResponse.json(
       { error: "Director Core is not yet available" },
@@ -485,49 +461,6 @@ function getNonEmptyString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function extractApiKeyFromHeaders(headers: Headers): string | undefined {
-  const primary = getNonEmptyString(headers.get(DIRECTOR_API_KEY_HEADER));
-  if (primary) {
-    return primary;
-  }
-
-  return getNonEmptyString(headers.get("x-director-api-key"));
-}
-
-function resolveStatusFromCode(code: unknown): number | undefined {
-  if (typeof code === "number" && Number.isInteger(code) && code > 0) {
-    return code;
-  }
-
-  if (typeof code === "string") {
-    const normalized = code.trim().toLowerCase();
-    switch (normalized) {
-      case "invalid_argument":
-      case "bad_request":
-        return 400;
-      case "unauthenticated":
-      case "unauthorized":
-        return 401;
-      case "permission_denied":
-      case "forbidden":
-        return 403;
-      case "not_found":
-        return 404;
-      case "already_exists":
-        return 409;
-      case "resource_exhausted":
-      case "quota_exceeded":
-        return 429;
-      case "unavailable":
-        return 503;
-      default:
-        return undefined;
-    }
-  }
-
-  return undefined;
 }
 
 function sanitizeErrorDetails(details: unknown): unknown {

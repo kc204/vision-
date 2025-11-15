@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { encodeFiles } from "@/lib/encodeFiles";
+import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 
 type LoopAssistantMessage = {
   role: "user" | "assistant";
@@ -42,6 +44,7 @@ export default function LoopAssistantPage() {
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
+  const { status } = useSession();
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -57,6 +60,16 @@ export default function LoopAssistantPage() {
   }, [useSampleAssistant]);
 
   useEffect(() => {
+    if (status === "loading") {
+      return;
+    }
+
+    if (status !== "authenticated") {
+      setMessages([]);
+      setIsRequesting(false);
+      return;
+    }
+
     let isActive = true;
 
     async function bootstrapConversation() {
@@ -64,15 +77,9 @@ export default function LoopAssistantPage() {
       setError(null);
 
       try {
-        const headers: HeadersInit = { "Content-Type": "application/json" };
-        const trimmedKey = apiKeyRef.current.trim();
-        if (trimmedKey.length > 0) {
-          headers["x-provider-api-key"] = trimmedKey;
-        }
-
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers,
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -110,7 +117,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [status]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -119,6 +126,11 @@ export default function LoopAssistantPage() {
 
     const trimmed = messageInput.trim();
     if (trimmed.length === 0 || isRequesting) {
+      return;
+    }
+
+    if (status !== "authenticated") {
+      setError("Sign in with Google to continue the loop conversation.");
       return;
     }
 
@@ -136,15 +148,10 @@ export default function LoopAssistantPage() {
 
     try {
       const encodedImages = await encodeFiles(files);
-      const headers: HeadersInit = { "Content-Type": "application/json" };
-      const trimmedKey = apiKey.trim();
-      if (trimmedKey.length > 0) {
-        headers["x-provider-api-key"] = trimmedKey;
-      }
 
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,
@@ -174,11 +181,11 @@ export default function LoopAssistantPage() {
       ]);
     } catch (submissionError) {
       console.error(submissionError);
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Loop assistant request failed"
-      );
+        if (submissionError instanceof Error) {
+          setError(submissionError.message);
+        } else {
+          setError("Loop assistant request failed");
+        }
     } finally {
       setIsRequesting(false);
     }
@@ -240,23 +247,7 @@ export default function LoopAssistantPage() {
             description="Drop in PNG, JPG, or WEBP frames that inform the loop&apos;s tone and composition."
           />
 
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-slate-200">
-              Provider API key (optional)
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Gemini key"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none"
-            />
-            <p className="text-xs text-slate-400">
-              Stored only in this browser session and forwarded with each assistant request.
-            </p>
-          </div>
+          <ProviderCredentialPanel description="Loop assistant prompts Gemini chat on your behalf." />
 
           <div className="space-y-4">
             <div className="max-h-[28rem] space-y-4 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4">
@@ -300,15 +291,21 @@ export default function LoopAssistantPage() {
                   </p>
                 ) : (
                   <span className="text-xs text-slate-400">
-                    {isRequesting
-                      ? "Waiting for the assistant..."
-                      : "Share your direction to keep iterating."}
+                    {status !== "authenticated"
+                      ? "Sign in with Google to begin the conversation."
+                      : isRequesting
+                        ? "Waiting for the assistant..."
+                        : "Share your direction to keep iterating."}
                   </span>
                 )}
                 <button
                   type="submit"
                   className="inline-flex items-center rounded-xl bg-canvas-accent px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
-                  disabled={isRequesting || messageInput.trim().length === 0}
+                  disabled={
+                    isRequesting ||
+                    messageInput.trim().length === 0 ||
+                    status !== "authenticated"
+                  }
                 >
                   {isRequesting ? "Sending" : "Send"}
                 </button>

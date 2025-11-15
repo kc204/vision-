@@ -1,3 +1,4 @@
+import { parseModelList, resolveGoogleModel } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import type {
   DirectorCoreResult,
@@ -9,26 +10,40 @@ import type {
 
 const GEMINI_API_URL =
   process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
-const VEO_API_URL =
-  process.env.VEO_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
+const VEO_API_URL = process.env.VEO_API_URL ?? GEMINI_API_URL;
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
-const GEMINI_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-1.5-flash-latest";
-const VEO_MODEL = process.env.VEO_VIDEO_MODEL ?? "veo-3.1";
+const GEMINI_IMAGE_MODELS = parseModelList(
+  process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
+  ["gemini-1.5-flash-latest"]
+);
+const VEO_VIDEO_MODELS = parseModelList(
+  process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
+  ["veo-3.1"]
+);
+
+export type DirectorProviderCredentials = {
+  google?: {
+    accessToken: string;
+  };
+  nanoBanana?: {
+    apiKey: string;
+  };
+};
 
 export async function callDirectorCore(
   req: DirectorRequest,
-  apiKeyOverride?: string
+  credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
   try {
     switch (req.mode) {
       case "image_prompt":
-        return await callGeminiImageProvider(req, apiKeyOverride);
+        return await callGeminiImageProvider(req, credentials);
       case "video_plan":
-        return await callVeoVideoProvider(req, apiKeyOverride);
+        return await callVeoVideoProvider(req, credentials);
       case "loop_sequence":
-        return await callNanoBananaProvider(req, apiKeyOverride);
+        return await callNanoBananaProvider(req, credentials);
       default:
         return {
           success: false,
@@ -44,24 +59,59 @@ export async function callDirectorCore(
 
 async function callGeminiImageProvider(
   req: Extract<DirectorRequest, { mode: "image_prompt" }>,
-  apiKeyOverride?: string
+  credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey =
-    getNonEmptyString(apiKeyOverride) ??
+  const googleAccessToken = credentials?.google?.accessToken;
+  const fallbackApiKey =
     getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
-  if (!apiKey) {
+
+  const usingOAuth = Boolean(googleAccessToken);
+  const token = googleAccessToken ?? fallbackApiKey;
+
+  if (!token) {
     return {
       success: false,
       provider: "gemini",
       error:
-        "Missing API key for Gemini image generation. Provide a key in the request or set GEMINI_API_KEY/GOOGLE_API_KEY.",
+        "Missing credentials for Gemini image generation. Sign in with Google or configure GEMINI_API_KEY.",
+      status: 401,
     };
   }
 
-  const url = `${GEMINI_API_URL}/models/${encodeURIComponent(
-    GEMINI_MODEL
-  )}:generateContent?key=${apiKey}`;
+  let model: string | null;
+  try {
+    model = usingOAuth
+      ? await resolveGoogleModel(token, GEMINI_IMAGE_MODELS, GEMINI_API_URL)
+      : GEMINI_IMAGE_MODELS[0];
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to evaluate Google account entitlements for Gemini.";
+    return { success: false, provider: "gemini", error: message };
+  }
+
+  if (!model) {
+    return {
+      success: false,
+      provider: "gemini",
+      error:
+        "Your Google account is not entitled to any Gemini image models required for Director Core.",
+      status: 403,
+    };
+  }
+
+  const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
+  if (usingOAuth) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const parts = buildUserParts(req.payload, req.images);
   const payload = {
@@ -81,9 +131,7 @@ async function callGeminiImageProvider(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (error) {
@@ -143,24 +191,56 @@ async function callGeminiImageProvider(
 
 async function callVeoVideoProvider(
   req: Extract<DirectorRequest, { mode: "video_plan" }>,
-  apiKeyOverride?: string
+  credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey =
-    getNonEmptyString(apiKeyOverride) ??
+  const googleAccessToken = credentials?.google?.accessToken;
+  const fallbackApiKey =
     getNonEmptyString(process.env.VEO_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
-  if (!apiKey) {
+
+  const usingOAuth = Boolean(googleAccessToken);
+  const token = googleAccessToken ?? fallbackApiKey;
+
+  if (!token) {
     return {
       success: false,
       provider: "veo-3.1",
       error:
-        "Missing API key for Veo video generation. Provide a key in the request or set VEO_API_KEY/GOOGLE_API_KEY.",
+        "Missing credentials for Veo video planning. Sign in with Google or configure VEO_API_KEY.",
+      status: 401,
     };
   }
 
-  const url = `${VEO_API_URL}/models/${encodeURIComponent(
-    VEO_MODEL
-  )}:generateContent?key=${apiKey}`;
+  let model: string | null;
+  try {
+    model = usingOAuth
+      ? await resolveGoogleModel(token, VEO_VIDEO_MODELS, VEO_API_URL)
+      : VEO_VIDEO_MODELS[0];
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to evaluate Google account entitlements for Veo.";
+    return { success: false, provider: "veo-3.1", error: message };
+  }
+
+  if (!model) {
+    return {
+      success: false,
+      provider: "veo-3.1",
+      error: "Your Google account is not entitled to any Veo models required for Director Core.",
+      status: 403,
+    };
+  }
+
+  const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
+  if (usingOAuth) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const parts = buildVideoPlanParts(req.payload, req.images);
   const payload = {
@@ -180,9 +260,7 @@ async function callVeoVideoProvider(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (error) {
@@ -241,17 +319,17 @@ async function callVeoVideoProvider(
 
 async function callNanoBananaProvider(
   req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
-  apiKeyOverride?: string
+  credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
   const apiKey =
-    getNonEmptyString(apiKeyOverride) ??
-    getNonEmptyString(process.env.NANO_BANANA_API_KEY);
+    credentials?.nanoBanana?.apiKey ?? getNonEmptyString(process.env.NANO_BANANA_API_KEY);
   if (!apiKey) {
     return {
       success: false,
       provider: "nano-banana",
       error:
         "Missing API key for Nano Banana loops. Provide a key in the request or set NANO_BANANA_API_KEY.",
+      status: 401,
     };
   }
 

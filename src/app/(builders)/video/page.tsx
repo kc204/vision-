@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 
 import { CopyButton } from "@/components/copy-button";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
+import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import type {
   DirectorMediaAsset,
   DirectorRequest,
@@ -50,7 +52,6 @@ const SAMPLE_VIDEO_PLAN: {
   visual_style: VideoPlanPayload["visual_style"];
   aspect_ratio: VideoPlanPayload["aspect_ratio"];
   mood_profile: string;
-  api_key: string;
   cinematic_control_options: {
     cameraAngles: string[];
     shotSizes: string[];
@@ -70,7 +71,6 @@ const SAMPLE_VIDEO_PLAN: {
   aspect_ratio: "9:16",
   mood_profile:
     "Keep the rebellious optimism, glistening reflections, and glitch-chic overlays consistent across every sequence.",
-  api_key: "sk-demo-vision-seed-1234",
   cinematic_control_options: {
     cameraAngles: ["low_angle"],
     shotSizes: ["medium"],
@@ -89,7 +89,6 @@ const INITIAL_FORM_STATE = {
   visual_style: "realistic" as VideoPlanPayload["visual_style"],
   aspect_ratio: "16:9" as VideoPlanPayload["aspect_ratio"],
   mood_profile: "",
-  api_key: "",
   cinematic_control_options: {
     cameraAngles: [] as string[],
     shotSizes: [] as string[],
@@ -149,9 +148,9 @@ export default function VideoBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoPlanResult | null>(null);
   const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
-  const [apiKey, setApiKey] = useState(INITIAL_FORM_STATE.api_key);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
   const [useSamplePlan, setUseSamplePlan] = useState(false);
+  const { status } = useSession();
 
   useEffect(() => {
     const activePlan = useSamplePlan ? SAMPLE_VIDEO_PLAN : INITIAL_FORM_STATE;
@@ -162,7 +161,6 @@ export default function VideoBuilderPage() {
     setVisualStyle(activePlan.visual_style);
     setAspectRatio(activePlan.aspect_ratio);
     setMoodProfile(activePlan.mood_profile);
-    setApiKey(activePlan.api_key);
     setCameraAngleSelection([
       ...activePlan.cinematic_control_options.cameraAngles,
     ]);
@@ -250,12 +248,22 @@ export default function VideoBuilderPage() {
   ];
 
   const canSubmit = useMemo(() => {
-    return visionSeedText.trim().length > 0 && scriptText.trim().length > 0 && !isSubmitting;
-  }, [isSubmitting, scriptText, visionSeedText]);
+    return (
+      visionSeedText.trim().length > 0 &&
+      scriptText.trim().length > 0 &&
+      !isSubmitting &&
+      status === "authenticated"
+    );
+  }, [isSubmitting, scriptText, status, visionSeedText]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
+
+    if (status !== "authenticated") {
+      setError("Sign in with Google to generate video plans.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -318,15 +326,9 @@ export default function VideoBuilderPage() {
         images: images.length ? images : undefined,
       };
 
-      const headers: HeadersInit = { "Content-Type": "application/json" };
-      const trimmedKey = apiKey.trim();
-      if (trimmedKey.length) {
-        headers["x-provider-api-key"] = trimmedKey;
-      }
-
       const response = await fetch("/api/director", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
       });
 
@@ -489,25 +491,7 @@ export default function VideoBuilderPage() {
           maxFiles={6}
         />
 
-        <div className="space-y-2">
-          <label className="block space-y-1">
-            <span className="text-sm font-semibold text-slate-200">
-              Provider API key (optional)
-            </span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Gemini, OpenAI, etc."
-              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            />
-          </label>
-          <p className="text-xs text-slate-400">
-            Used only for this browser session and attached to your request payload.
-          </p>
-        </div>
+        <ProviderCredentialPanel />
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-slate-200">

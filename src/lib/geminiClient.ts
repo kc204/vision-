@@ -1,8 +1,12 @@
+import { parseModelList, resolveGoogleModel } from "./googleModels";
+
 const GEMINI_API_URL =
   process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
 
-const GEMINI_CHAT_MODEL =
-  process.env.GEMINI_CHAT_MODEL ?? "gemini-1.5-pro-latest";
+const GEMINI_CHAT_MODELS = parseModelList(
+  process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
+  ["gemini-1.5-pro-latest"]
+);
 
 export type GeminiChatRole = "user" | "assistant";
 
@@ -25,26 +29,64 @@ export type GeminiChatError = {
 
 export type GeminiChatResult = GeminiChatSuccess | GeminiChatError;
 
+type GeminiChatCredentials = {
+  googleAccessToken?: string;
+  apiKey?: string;
+};
+
 export async function callGeminiChat(
   systemPrompt: string,
   history: GeminiChatMessage[],
-  apiKeyOverride?: string
+  credentials?: GeminiChatCredentials
 ): Promise<GeminiChatResult> {
-  const apiKey =
-    getNonEmptyString(apiKeyOverride) ??
+  const googleAccessToken = credentials?.googleAccessToken;
+  const fallbackApiKey =
+    credentials?.apiKey ??
     getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
-  if (!apiKey) {
+
+  const usingOAuth = Boolean(googleAccessToken);
+  const token = googleAccessToken ?? fallbackApiKey;
+
+  if (!token) {
     return {
       success: false,
       error:
-        "Missing API key for Gemini chat. Provide a key in the request or set GEMINI_API_KEY/GOOGLE_API_KEY.",
+        "Missing credentials for Gemini chat. Sign in with Google or configure GEMINI_API_KEY.",
+      status: 401,
     };
   }
 
-  const url = `${GEMINI_API_URL}/models/${encodeURIComponent(
-    GEMINI_CHAT_MODEL
-  )}:generateContent?key=${apiKey}`;
+  let model: string | null;
+  try {
+    model = usingOAuth
+      ? await resolveGoogleModel(token, GEMINI_CHAT_MODELS, GEMINI_API_URL)
+      : GEMINI_CHAT_MODELS[0];
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to evaluate Google account entitlements for Gemini chat.";
+    return { success: false, error: message };
+  }
+
+  if (!model) {
+    return {
+      success: false,
+      error:
+        "Your Google account is not entitled to the Gemini chat models required for loop assistant.",
+      status: 403,
+    };
+  }
+
+  const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const url = usingOAuth ? endpoint : `${endpoint}?key=${token}`;
+  if (usingOAuth) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const contents = history.map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
@@ -74,9 +116,7 @@ export async function callGeminiChat(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (error) {
