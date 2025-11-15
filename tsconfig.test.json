@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": ".tmp-test",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/lib/imagePromptParser.ts",
+    "src/lib/imagePromptParser.test.ts"
+  ]
+}
