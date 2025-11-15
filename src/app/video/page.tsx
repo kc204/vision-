@@ -2,835 +2,525 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
-import { ImageDropzone } from "@/components/ImageDropzone";
-import { PromptOutput } from "@/components/PromptOutput";
-import { Tooltip } from "@/components/Tooltip";
 
 type AspectRatio = "16:9" | "9:16";
 
-type VisionSeedFormValues = {
-  scriptText: string;
+type VideoPlanPayload = {
+  visionSeed: string;
+  script: string;
   tone: string;
-  palette: string;
-  references: string;
-  aspectRatio: AspectRatio;
-};
-
-type SceneDraft = {
-  id: string;
-  title: string;
-  summary: string;
-  question: string;
-};
-
-type SceneAnswerPayload = {
-  sceneId: string;
-  answer: string;
-};
-
-type ContinuityLock = {
-  subject_identity: string;
-  lighting_and_palette: string;
-  camera_grammar: string;
-  environment_motif: string;
-};
-
-type FinalScenePlan = {
-  id: string;
-  segment_title: string;
-  scene_description: string;
-  main_subject: string;
-  camera_movement: string;
-  visual_tone: string;
-  motion: string;
-  mood: string;
-  narrative: string;
-  sound_suggestion: string;
-  text_overlay: string;
-  voice_timing_hint: string;
-  broll_suggestions: string;
-  graphics_callouts: string;
-  editor_notes: string;
-  continuity_lock: ContinuityLock;
-  acceptance_check: string[];
-  followup_answer: string;
-};
-
-type TransitionPlan = {
-  from_scene_id: string;
-  to_scene_id: string;
   style: string;
-  description: string;
-  motion_design: string;
-  audio_bridge: string;
-};
-
-type ThumbnailConcept = {
-  logline: string;
-  composition: string;
-  color_notes: string;
-  typography: string;
-};
-
-type VisionSeedSummary = {
-  hook: string;
-  story_summary: string;
-  tone_directives: string;
-  palette_notes: string;
-  reference_synthesis: string;
   aspectRatio: AspectRatio;
+  lighting?: string;
+  composition?: string;
 };
 
-type CollectDetailsResponse = {
-  stage: "collect_details";
-  visionSeed: VisionSeedSummary;
-  segmentation: SceneDraft[];
+type DirectorRequest = {
+  mode: "video_plan";
+  payload: VideoPlanPayload;
 };
 
-type ExportPayload = {
-  version: string;
-  aspectRatio: AspectRatio;
-  tone: string;
-  palette: string;
-  references: string[];
-  scenes: FinalScenePlan[];
-  transitions: TransitionPlan[];
-  thumbnailConcept: ThumbnailConcept;
+type DirectorError = {
+  error: string;
 };
 
-type RenderJob = {
-  id: string;
-  status: string;
-  etaSeconds?: number | null;
+type VideoPlanScene = {
+  id?: string;
+  title?: string;
+  summary?: string;
+  visuals?: string;
+  script?: string;
+  audio?: string;
+  camera?: string;
+  duration?: string;
+  raw: Record<string, unknown>;
 };
 
-type CompletePlanResponse = {
-  stage: "complete";
-  visionSeed: VisionSeedSummary;
-  scenes: FinalScenePlan[];
-  transitions: TransitionPlan[];
-  thumbnailConcept: ThumbnailConcept;
-  exportPayload: ExportPayload;
-  renderJob?: RenderJob & { raw?: unknown };
+type VideoPlanResponse = {
+  thumbnailConcept: Record<string, unknown>;
+  scenes: VideoPlanScene[];
+  original: Record<string, unknown>;
+  scenesOriginal: Record<string, unknown>[];
+  planSummary?: string;
+  title?: string;
 };
-
-type Stage = "seed" | "questions" | "complete";
 
 const aspectRatioOptions: AspectRatio[] = ["16:9", "9:16"];
+const toneOptions = [
+  "Playful",
+  "Cinematic",
+  "Documentary",
+  "Inspirational",
+  "High energy",
+];
+const styleOptions = [
+  "Live action",
+  "Mixed media",
+  "Product showcase",
+  "Docu-style",
+  "Social-first",
+];
+const lightingOptions = [
+  "No preference",
+  "Golden hour glow",
+  "Soft diffused studio",
+  "High-contrast noir",
+  "Neon night wash",
+];
+const compositionOptions = [
+  "No preference",
+  "Rule of thirds",
+  "Centered hero",
+  "Symmetrical",
+  "Dynamic diagonal",
+];
 
-export default function VideoPlanPage() {
-  const [formValues, setFormValues] = useState<VisionSeedFormValues>({
-    scriptText: "",
-    tone: "",
-    palette: "",
-    references: "",
-    aspectRatio: "16:9",
-  });
-  const [collectResult, setCollectResult] = useState<CollectDetailsResponse | null>(null);
-  const [sceneAnswers, setSceneAnswers] = useState<Record<string, string>>({});
-  const [finalPlan, setFinalPlan] = useState<CompletePlanResponse | null>(null);
-  const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
-  const [referenceImages, setReferenceImages] = useState<File[]>([]);
-  const [expandedScenes, setExpandedScenes] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmittingSeed, setIsSubmittingSeed] = useState(false);
-  const [isFinalizingPlan, setIsFinalizingPlan] = useState(false);
-  const [isRendering, setIsRendering] = useState(false);
-
-  const stage: Stage = finalPlan ? "complete" : collectResult ? "questions" : "seed";
-
-  const disableSeedSubmit = useMemo(() => {
-    return (
-      isSubmittingSeed ||
-      formValues.scriptText.trim().length === 0 ||
-      formValues.tone.trim().length === 0 ||
-      formValues.palette.trim().length === 0
-    );
-  }, [formValues.palette, formValues.scriptText, formValues.tone, isSubmittingSeed]);
-
-  const disableFinalize = useMemo(() => {
-    if (!collectResult) return true;
-    const unanswered = collectResult.segmentation.some(
-      (scene) => (sceneAnswers[scene.id] ?? "").trim().length === 0
-    );
-    return unanswered || isFinalizingPlan;
-  }, [collectResult, sceneAnswers, isFinalizingPlan]);
-
-  const disableRender = useMemo(() => {
-    if (!finalPlan) return true;
-    return isRendering;
-  }, [finalPlan, isRendering]);
-
-  function updateForm<Key extends keyof VisionSeedFormValues>(
-    key: Key,
-    value: VisionSeedFormValues[Key]
-  ) {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
+function normalizeVideoPlanResponse(data: unknown): VideoPlanResponse | null {
+  if (!data || typeof data !== "object") {
+    return null;
   }
 
-  function resetFlow() {
-    setCollectResult(null);
-    setSceneAnswers({});
-    setFinalPlan(null);
-    setRenderJob(null);
-    setReferenceImages([]);
-    setExpandedScenes({});
+  const record = data as Record<string, unknown>;
+  const thumbnail = record.thumbnailConcept;
+  const scenes = record.scenes;
+
+  if (!thumbnail || typeof thumbnail !== "object") {
+    return null;
   }
 
-  async function submitVisionSeed(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (disableSeedSubmit) return;
+  if (!Array.isArray(scenes)) {
+    return null;
+  }
 
-    setIsSubmittingSeed(true);
-    setError(null);
-    resetFlow();
+  const sceneRecords = scenes.filter(
+    (scene): scene is Record<string, unknown> =>
+      Boolean(scene) && typeof scene === "object"
+  );
 
-    try {
-      const response = await fetch("/api/director", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "video_plan" as const,
-          visionSeed: {
-            scriptText: formValues.scriptText,
-            tone: formValues.tone,
-            palette: formValues.palette,
-            references: parseReferences(formValues.references),
-            aspectRatio: formValues.aspectRatio,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Request failed");
-      }
-
-      const { text } = (await response.json()) as { text: string };
-      try {
-        const data = JSON.parse(text) as CollectDetailsResponse;
-        setCollectResult(data);
-        const defaultAnswers = Object.fromEntries(
-          data.segmentation.map((scene) => [scene.id, ""])
-        );
-        setSceneAnswers(defaultAnswers);
-      } catch (parseError) {
-        console.error("Invalid director response", parseError, text);
-        throw new Error("Invalid director response");
-      }
-    } catch (requestError) {
-      console.error(requestError);
-      setError(
-        "Unable to run the Vision Seed intake. Check your inputs and try again."
-      );
-    } finally {
-      setIsSubmittingSeed(false);
+  const getPlanSummary = () => {
+    if (typeof record.planSummary === "string") {
+      return record.planSummary;
     }
-  }
-
-  async function finalizePlan(directRender = false, useExistingPlan = false) {
-    if (!collectResult) return;
-    if (directRender && useExistingPlan && finalPlan) {
-      return triggerRenderWithOverride(finalPlan);
+    if (typeof record.summary === "string") {
+      return record.summary;
     }
+    if (typeof record.overview === "string") {
+      return record.overview;
+    }
+    return undefined;
+  };
 
-    const answersPayload: SceneAnswerPayload[] = collectResult.segmentation.map(
-      (scene) => ({
-        sceneId: scene.id,
-        answer: (sceneAnswers[scene.id] ?? "").trim(),
-      })
-    );
-
-    const payload = {
-      type: "video_plan" as const,
-      visionSeed: {
-        scriptText: formValues.scriptText,
-        tone: formValues.tone,
-        palette: formValues.palette,
-        references: parseReferences(formValues.references),
-        aspectRatio: formValues.aspectRatio,
-      },
-      segmentation: collectResult.segmentation,
-      sceneAnswers: answersPayload,
-      directRender,
+  const normalizedScenes = sceneRecords.map((sceneRecord) => {
+    const readString = (key: string) => {
+      const value = sceneRecord[key];
+      return typeof value === "string" ? value : undefined;
     };
 
-    setError(null);
+    return {
+      id: readString("id"),
+      title: readString("title"),
+      summary: readString("summary") ?? readString("description"),
+      visuals: readString("visuals") ?? readString("visual_description"),
+      script: readString("script") ?? readString("voiceover"),
+      audio: readString("audio") ?? readString("sound"),
+      camera: readString("camera") ?? readString("camera_notes"),
+      duration: readString("duration") ?? readString("timing"),
+      raw: sceneRecord,
+    } satisfies VideoPlanScene;
+  });
 
-    if (directRender) {
-      setIsRendering(true);
-    } else {
-      setIsFinalizingPlan(true);
+  return {
+    thumbnailConcept: thumbnail as Record<string, unknown>,
+    scenes: normalizedScenes,
+    original: record,
+    scenesOriginal: sceneRecords,
+    planSummary: getPlanSummary(),
+    title: typeof record.title === "string" ? record.title : undefined,
+  } satisfies VideoPlanResponse;
+}
+
+function extractStringEntries(
+  record: Record<string, unknown>
+): [string, string][] {
+  return Object.entries(record).reduce<[string, string][]>((entries, entry) => {
+    const [key, value] = entry;
+    if (typeof value === "string" && value.trim().length > 0) {
+      entries.push([key, value]);
     }
+    return entries;
+  }, []);
+}
+
+function formatLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+export default function VideoPlanBuilderPage() {
+  const [visionSeed, setVisionSeed] = useState("");
+  const [script, setScript] = useState("");
+  const [tone, setTone] = useState(toneOptions[0]);
+  const [style, setStyle] = useState(styleOptions[0]);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("16:9");
+  const [lighting, setLighting] = useState(lightingOptions[0]);
+  const [composition, setComposition] = useState(compositionOptions[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<VideoPlanResponse | null>(null);
+
+  const disableSubmit = useMemo(() => {
+    return (
+      isSubmitting ||
+      visionSeed.trim().length === 0 ||
+      script.trim().length === 0
+    );
+  }, [isSubmitting, script, visionSeed]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disableSubmit) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+    setPlan(null);
+
+    const payload: VideoPlanPayload = {
+      visionSeed: visionSeed.trim(),
+      script: script.trim(),
+      tone,
+      style,
+      aspectRatio,
+      lighting:
+        lighting && lighting !== lightingOptions[0] ? lighting : undefined,
+      composition:
+        composition && composition !== compositionOptions[0]
+          ? composition
+          : undefined,
+    };
+
+    const requestBody: DirectorRequest = {
+      mode: "video_plan",
+      payload,
+    };
 
     try {
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        throw new Error("Request failed");
+        const errorPayload = (await response
+          .json()
+          .catch(() => null)) as DirectorError | null;
+        throw new Error(errorPayload?.error ?? "Failed to generate plan");
       }
 
-      const { text } = (await response.json()) as { text: string };
-      try {
-        const data = JSON.parse(text) as CompletePlanResponse;
-        setFinalPlan(data);
-        setRenderJob(data.renderJob ?? null);
-        setExpandedScenes({});
-      } catch (parseError) {
-        console.error("Invalid director response", parseError, text);
-        throw new Error("Invalid director response");
+      const data = await response.json();
+      const normalized = normalizeVideoPlanResponse(data);
+
+      if (!normalized) {
+        throw new Error("Received malformed plan data");
       }
+
+      setPlan(normalized);
+      // TODO: Trigger Veo 3 generation flow with normalized.scenesOriginal once the renderer pipeline is ready.
     } catch (requestError) {
       console.error(requestError);
+      setPlan(null);
       setError(
-        directRender
-          ? "Gemini render request failed. Review the plan or try again later."
-          : "Unable to generate the scene blueprint. Please refine your answers and try again."
+        requestError instanceof Error
+          ? requestError.message
+          : "Failed to generate plan"
       );
     } finally {
-      setIsFinalizingPlan(false);
-      setIsRendering(false);
+      setIsSubmitting(false);
     }
   }
 
-  async function triggerRenderWithOverride(plan: CompletePlanResponse) {
-    if (!collectResult) return;
-    setIsRendering(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/director", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "video_plan" as const,
-          visionSeed: {
-            scriptText: formValues.scriptText,
-            tone: formValues.tone,
-            palette: formValues.palette,
-            references: parseReferences(formValues.references),
-            aspectRatio: formValues.aspectRatio,
-          },
-          segmentation: collectResult.segmentation,
-          sceneAnswers: collectResult.segmentation.map((scene) => ({
-            sceneId: scene.id,
-            answer: sceneAnswers[scene.id] ?? "",
-          })),
-          directRender: true,
-          finalPlanOverride: plan,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Request failed");
-      }
-
-      const { text } = (await response.json()) as { text: string };
-      try {
-        const data = JSON.parse(text) as CompletePlanResponse;
-        setFinalPlan(data);
-        setRenderJob(data.renderJob ?? null);
-      } catch (parseError) {
-        console.error("Invalid director response", parseError, text);
-        throw new Error("Invalid director response");
-      }
-    } catch (requestError) {
-      console.error(requestError);
-      setError("Gemini render request failed. Try again later.");
-    } finally {
-      setIsRendering(false);
-    }
-  }
-
-  function handleAnswerChange(sceneId: string, value: string) {
-    setSceneAnswers((prev) => ({ ...prev, [sceneId]: value }));
-  }
-
-  function toggleScene(sceneId: string) {
-    setExpandedScenes((prev) => ({ ...prev, [sceneId]: !prev[sceneId] }));
-  }
-
-  const exportJson = finalPlan
-    ? JSON.stringify(finalPlan.exportPayload, null, 2)
-    : "";
+  const hasPlan = plan && plan.scenes.length > 0;
 
   return (
-    <section className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+    <section className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <form
-        onSubmit={submitVisionSeed}
+        onSubmit={handleSubmit}
         className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
         <header className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+            Vision Director
+          </p>
           <h1 className="text-3xl font-semibold text-white">
-            Orchestrate your Gemini video blueprint
+            Shape a video plan in one pass
           </h1>
           <p className="text-sm text-slate-300">
-            Feed the Vision Seed with story tone, palette, and references. We will stage-gate the plan before triggering Gemini render jobs.
+            Drop a vision seed, pair it with script context, and add tone and
+            style guidance. The director will map out thumbnail concepts and
+            scene beats you can reuse downstream.
           </p>
         </header>
 
-        <div>
-          <label className="mt-2 block text-sm font-medium text-slate-200">
-            Script or narration
+        <div className="space-y-3">
+          <label className="text-sm font-medium text-slate-200">
+            Vision Seed
           </label>
           <textarea
-            value={formValues.scriptText}
-            onChange={(event) => updateForm("scriptText", event.target.value)}
-            rows={8}
-            className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            placeholder="Opening hook, main beats, CTA..."
+            value={visionSeed}
+            onChange={(event) => setVisionSeed(event.target.value)}
+            rows={5}
+            className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            placeholder="We open on a founder walking through a buzzing studio, describing how their product reframes remote collaboration"
           />
+          <p className="text-xs text-slate-400">
+            A quick vibe check for the plan—describe the feeling, pacing, or
+            hook.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="text-sm font-medium text-slate-200">
+            Script or beats
+          </label>
+          <textarea
+            value={script}
+            onChange={(event) => setScript(event.target.value)}
+            rows={6}
+            className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            placeholder="Intro: We believe meetings should energize teams..."
+          />
+          <p className="text-xs text-slate-400">
+            Paste draft narration or bullet beats—the planner will align scenes
+            to this structure.
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <TextField
-            label="Tone directives"
-            value={formValues.tone}
-            placeholder="e.g. urgent, investigative, cinematic"
-            onChange={(value) => updateForm("tone", value)}
-          />
-          <TextField
-            label="Color palette & texture"
-            value={formValues.palette}
-            placeholder="e.g. neon cyberpunk, warm tungsten, matte blacks"
-            onChange={(value) => updateForm("palette", value)}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-200">
-            Visual references or links
-          </label>
-          <textarea
-            value={formValues.references}
-            onChange={(event) => updateForm("references", event.target.value)}
-            rows={3}
-            className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            placeholder="Separate with commas or new lines."
-          />
-          <ImageDropzone
-            files={referenceImages}
-            onFilesChange={setReferenceImages}
-            label="Vision Seed reference images (optional)"
-            description="Drop PNG, JPG, or WEBP stills to guide segmentation and tone."
-            maxFiles={12}
-            className="mt-4"
-          />
-        </div>
-
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-200">Aspect ratio</span>
-            <Tooltip content="Choose the base edit orientation. 16:9 for widescreen, 9:16 for vertical.">
-              <button
-                type="button"
-                aria-label="Aspect ratio guidance"
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 text-xs text-slate-300 transition hover:border-white/40 hover:text-white"
-              >
-                i
-              </button>
-            </Tooltip>
-          </div>
-          <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-slate-950/30 p-1">
-            {aspectRatioOptions.map((ratio) => {
-              const isActive = formValues.aspectRatio === ratio;
-              return (
-                <button
-                  key={ratio}
-                  type="button"
-                  onClick={() => updateForm("aspectRatio", ratio)}
-                  className={`rounded-md px-4 py-2 text-xs font-semibold transition ${
-                    isActive
-                      ? "bg-canvas-accent text-white shadow"
-                      : "text-slate-300 hover:bg-white/10"
-                  }`}
-                >
-                  {ratio === "16:9" ? "16:9 • YouTube" : "9:16 • Shorts"}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={disableSeedSubmit}
-            className="flex-1 rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 disabled:cursor-not-allowed disabled:bg-slate-600"
-          >
-            {isSubmittingSeed ? "Running intake…" : "Run Vision Seed intake"}
-          </button>
-          {stage !== "seed" && (
-            <button
-              type="button"
-              onClick={resetFlow}
-              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-white/10"
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-200">
+              Tone
+            </label>
+            <select
+              value={tone}
+              onChange={(event) => setTone(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
             >
-              Reset
-            </button>
-          )}
+              {toneOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-200">
+              Style
+            </label>
+            <select
+              value={style}
+              onChange={(event) => setStyle(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            >
+              {styleOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {error && (
-          <p className="text-sm text-rose-400" role="alert">
-            {error}
-          </p>
-        )}
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-200">
+              Aspect ratio
+            </label>
+            <select
+              value={aspectRatio}
+              onChange={(event) =>
+                setAspectRatio(event.target.value as AspectRatio)
+              }
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            >
+              {aspectRatioOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-200">
+              Lighting preference
+            </label>
+            <select
+              value={lighting}
+              onChange={(event) => setLighting(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            >
+              {lightingOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-200">
+              Composition focus
+            </label>
+            <select
+              value={composition}
+              onChange={(event) => setComposition(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            >
+              {compositionOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={disableSubmit}
+          className="inline-flex w-full items-center justify-center rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-canvas-accent focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSubmitting ? "Drafting plan..." : "Generate video plan"}
+        </button>
+
+        {error ? (
+          <p className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>
+        ) : null}
       </form>
 
-      <aside className="space-y-6">
-        {stage === "seed" && (
-          <div className="h-full rounded-3xl border border-dashed border-white/10 bg-slate-950/30 p-6 text-sm text-slate-400">
-            The intake orchestrator will segment your script, ask tailored follow-ups for each scene, then assemble transitions and thumbnail concepts ready for Gemini rendering.
-          </div>
-        )}
+      <aside className="space-y-6 rounded-3xl border border-white/10 bg-slate-950/40 p-6">
+        <header className="space-y-2">
+          <h2 className="text-2xl font-semibold text-white">Plan output</h2>
+          <p className="text-sm text-slate-300">
+            Review the thumbnail concept and scene breakdown. Copy the full plan
+            JSON or just the scenes when you&apos;re ready to prompt downstream
+            tools.
+          </p>
+          {plan ? (
+            <div className="flex flex-wrap gap-3">
+              <CopyButton
+                text={JSON.stringify(plan.original, null, 2)}
+                label="Copy full plan"
+                className="inline-flex items-center rounded-md bg-canvas-accent px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500/90"
+              />
+              <CopyButton
+                text={JSON.stringify(plan.scenesOriginal, null, 2)}
+                label="Copy scenes only"
+                className="inline-flex items-center rounded-md bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+              />
+            </div>
+          ) : null}
+        </header>
 
-        {stage === "questions" && collectResult && (
+        {plan ? (
           <div className="space-y-6">
-            <VisionSeedSummaryPanel summary={collectResult.visionSeed} />
-
-            <section className="space-y-4 rounded-3xl border border-white/10 bg-slate-950/40 p-6">
-              <header className="space-y-1">
-                <h2 className="text-lg font-semibold text-white">Scene follow-ups</h2>
-                <p className="text-sm text-slate-300">
-                  Answer each question to unlock scripted segmentation refinement.
+            {plan.title ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-canvas-accent">
+                  Working title
                 </p>
-              </header>
-              <div className="space-y-6">
-                {collectResult.segmentation.map((scene, index) => (
-                  <div key={scene.id} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
-                        Scene {index + 1}
-                      </p>
-                      <h3 className="text-base font-semibold text-white">{scene.title}</h3>
-                      <p className="mt-2 text-sm text-slate-300">{scene.summary}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-200">Question</p>
-                      <p className="mt-1 text-sm text-slate-300">{scene.question}</p>
-                    </div>
-                    <textarea
-                      value={sceneAnswers[scene.id] ?? ""}
-                      onChange={(event) => handleAnswerChange(scene.id, event.target.value)}
-                      rows={3}
-                      className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-                      placeholder="Your creative direction, product specifics, or continuity notes"
-                    />
+                <p className="mt-2 text-lg font-semibold text-white">
+                  {plan.title}
+                </p>
+                {plan.planSummary ? (
+                  <p className="mt-2 text-sm text-slate-300">{plan.planSummary}</p>
+                ) : null}
+              </div>
+            ) : plan.planSummary ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-canvas-accent">
+                  Overview
+                </p>
+                <p className="mt-2 text-sm text-slate-300">{plan.planSummary}</p>
+              </div>
+            ) : null}
+
+            <section className="space-y-3">
+              <h3 className="text-lg font-semibold text-white">Thumbnail concept</h3>
+              <div className="space-y-2 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                {extractStringEntries(plan.thumbnailConcept).map(([key, value]) => (
+                  <div key={key}>
+                    <p className="text-xs uppercase tracking-[0.2em] text-canvas-accent">
+                      {formatLabel(key)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-200">{value}</p>
                   </div>
                 ))}
+                {extractStringEntries(plan.thumbnailConcept).length === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    No thumbnail notes were provided.
+                  </p>
+                ) : null}
               </div>
-              <button
-                type="button"
-                disabled={disableFinalize}
-                onClick={() => finalizePlan(false)}
-                className="w-full rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white shadow-lg disabled:cursor-not-allowed disabled:bg-slate-600"
-              >
-                {isFinalizingPlan ? "Building scene blueprint…" : "Generate scene blueprint"}
-              </button>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-lg font-semibold text-white">Scenes</h3>
+              {hasPlan ? (
+                <div className="space-y-4">
+                  {plan.scenes.map((scene, index) => {
+                    const entries = extractStringEntries(scene.raw).filter(
+                      ([key]) => key !== "title"
+                    );
+
+                    return (
+                      <article
+                        key={scene.id ?? scene.title ?? index}
+                        className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/60 p-4"
+                      >
+                        <header>
+                          <p className="text-xs uppercase tracking-[0.2em] text-canvas-accent">
+                            Scene {index + 1}
+                          </p>
+                          <h4 className="mt-1 text-lg font-semibold text-white">
+                            {scene.title ?? scene.id ?? `Scene ${index + 1}`}
+                          </h4>
+                        </header>
+                        {scene.summary ? (
+                          <p className="text-sm text-slate-200">{scene.summary}</p>
+                        ) : null}
+                        <dl className="grid gap-3 sm:grid-cols-2">
+                          {entries.map(([key, value]) => (
+                            <div key={key}>
+                              <dt className="text-xs uppercase tracking-[0.2em] text-canvas-accent">
+                                {formatLabel(key)}
+                              </dt>
+                              <dd className="mt-1 text-sm text-slate-200">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        {entries.length === 0 && !scene.summary ? (
+                          <p className="text-sm text-slate-400">
+                            No additional scene details provided.
+                          </p>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  Waiting for plan output. Submit the form to see the scene
+                  breakdown.
+                </p>
+              )}
             </section>
           </div>
-        )}
-
-        {stage === "complete" && finalPlan && (
-          <div className="space-y-6">
-            <VisionSeedSummaryPanel summary={finalPlan.visionSeed} />
-
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-              <header className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                    Thumbnail concept
-                  </h2>
-                  <p className="text-xs text-slate-400">Feed this directly into your design pass.</p>
-                </div>
-                <CopyButton
-                  text={formatThumbnailConcept(finalPlan.thumbnailConcept)}
-                  label="Copy concept"
-                />
-              </header>
-              <ThumbnailConceptDetails concept={finalPlan.thumbnailConcept} />
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-slate-950/40 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                    Scene blueprint
-                  </h2>
-                  <p className="text-xs text-slate-400">Tap each scene for continuity and motion notes.</p>
-                </div>
-                <CopyButton text={exportJson} label="Copy JSON" />
-              </div>
-
-              <div className="mt-5 space-y-4">
-                {finalPlan.scenes.map((scene) => {
-                  const isExpanded = expandedScenes[scene.id];
-                  return (
-                    <article
-                      key={scene.id}
-                      className="rounded-2xl border border-white/10 bg-slate-950/50"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleScene(scene.id)}
-                        className="flex w-full items-center justify-between gap-4 rounded-t-2xl px-5 py-4 text-left"
-                      >
-                        <div>
-                          <h3 className="text-base font-semibold text-white">{scene.segment_title}</h3>
-                          <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
-                            {scene.mood} · {scene.camera_movement}
-                          </p>
-                        </div>
-                        <span className="text-sm text-slate-400">
-                          {isExpanded ? "Hide details" : "More details"}
-                        </span>
-                      </button>
-                      <div className="space-y-4 border-t border-white/10 px-5 py-4 text-sm text-slate-100">
-                        <Description label="Scene description" value={scene.scene_description} />
-                        <Description label="Main subject" value={scene.main_subject} />
-                        <Description label="Visual tone" value={scene.visual_tone} />
-                        <Description label="Narrative" value={scene.narrative} />
-                        <Description label="Voice timing" value={scene.voice_timing_hint} />
-                        <Description label="Answer applied" value={scene.followup_answer} />
-                        {isExpanded && (
-                          <div className="space-y-3 rounded-xl border border-white/5 bg-slate-950/60 p-4">
-                            <Description label="Motion" value={scene.motion} />
-                            <Description label="Sound suggestion" value={scene.sound_suggestion} />
-                            <Description label="Text overlay" value={scene.text_overlay} />
-                            <Description label="B-roll suggestions" value={scene.broll_suggestions} />
-                            <Description label="Graphics callouts" value={scene.graphics_callouts} />
-                            <Description label="Editor notes" value={scene.editor_notes} />
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                              Continuity lock
-                            </h4>
-                            <ul className="space-y-1 text-xs text-slate-300">
-                              <li>
-                                <strong className="text-slate-200">Subject identity:</strong> {" "}
-                                {scene.continuity_lock.subject_identity}
-                              </li>
-                              <li>
-                                <strong className="text-slate-200">Lighting & palette:</strong> {" "}
-                                {scene.continuity_lock.lighting_and_palette}
-                              </li>
-                              <li>
-                                <strong className="text-slate-200">Camera grammar:</strong> {" "}
-                                {scene.continuity_lock.camera_grammar}
-                              </li>
-                              <li>
-                                <strong className="text-slate-200">Environment motif:</strong> {" "}
-                                {scene.continuity_lock.environment_motif}
-                              </li>
-                            </ul>
-                            <div>
-                              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                                Acceptance check
-                              </h4>
-                              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-300">
-                                {scene.acceptance_check.map((item, index) => (
-                                  <li key={index}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-slate-950/40 p-6">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                Transitions
-              </h2>
-              <div className="mt-4 space-y-4">
-                {finalPlan.transitions.map((transition) => (
-                  <div
-                    key={`${transition.from_scene_id}-${transition.to_scene_id}`}
-                    className="rounded-2xl border border-white/10 bg-slate-950/60 p-4"
-                  >
-                    <p className="text-xs uppercase tracking-wide text-slate-400">
-                      {transition.from_scene_id} → {transition.to_scene_id}
-                    </p>
-                    <h3 className="mt-1 text-sm font-semibold text-white">
-                      {transition.style}
-                    </h3>
-                    <p className="mt-2 text-sm text-slate-200">{transition.description}</p>
-                    <p className="mt-2 text-xs text-slate-300">
-                      <strong className="text-slate-200">Motion design:</strong> {transition.motion_design}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">
-                      <strong className="text-slate-200">Audio bridge:</strong> {transition.audio_bridge}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="space-y-4 rounded-3xl border border-white/10 bg-slate-950/40 p-6">
-              <header className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-                    Automation exports
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Download or hand off JSON to your automation stack.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CopyButton text={exportJson} label="Copy JSON" />
-                  <button
-                    type="button"
-                    onClick={() => downloadJson(finalPlan.exportPayload)}
-                    className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10"
-                  >
-                    Download JSON
-                  </button>
-                </div>
-              </header>
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={disableRender}
-                  onClick={() => finalizePlan(true, Boolean(finalPlan))}
-                  className="rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white shadow-lg disabled:cursor-not-allowed disabled:bg-slate-600"
-                >
-                  {isRendering ? "Requesting Gemini render…" : "Render with Gemini"}
-                </button>
-                {renderJob && (
-                  <p className="text-sm text-slate-200">
-                    Job {renderJob.id} • {renderJob.status}
-                    {typeof renderJob.etaSeconds === "number" && renderJob.etaSeconds > 0
-                      ? ` • ETA ${Math.round(renderJob.etaSeconds)}s`
-                      : ""}
-                  </p>
-                )}
-              </div>
-            </section>
+        ) : (
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-6 text-center">
+            <p className="text-sm text-slate-400">
+              Plan output will appear here after you generate a video plan.
+            </p>
           </div>
         )}
       </aside>
     </section>
   );
-}
-
-type TextFieldProps = {
-  label: string;
-  value: string;
-  placeholder?: string;
-  onChange: (value: string) => void;
-};
-
-function TextField({ label, value, placeholder, onChange }: TextFieldProps) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 font-medium text-slate-200">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-      />
-    </label>
-  );
-}
-
-type DescriptionProps = {
-  label: string;
-  value: string;
-};
-
-function Description({ label, value }: DescriptionProps) {
-  return (
-    <PromptOutput label={label} value={value} variant="subtle" />
-  );
-}
-
-type VisionSeedSummaryPanelProps = {
-  summary: VisionSeedSummary;
-};
-
-function VisionSeedSummaryPanel({ summary }: VisionSeedSummaryPanelProps) {
-  const items = [
-    { label: "Hook", value: summary.hook },
-    { label: "Story arc", value: summary.story_summary },
-    { label: "Tone directives", value: summary.tone_directives },
-    { label: "Palette notes", value: summary.palette_notes },
-    { label: "Reference synthesis", value: summary.reference_synthesis },
-    { label: "Aspect ratio", value: summary.aspectRatio },
-  ];
-
-  return (
-    <section className="rounded-3xl border border-white/10 bg-slate-950/40 p-6">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-        Vision Seed synthesis
-      </h2>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {items.map((item) => (
-          <PromptOutput
-            key={item.label}
-            label={item.label}
-            value={item.value}
-            variant="subtle"
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-type ThumbnailConceptDetailsProps = {
-  concept: ThumbnailConcept;
-};
-
-function ThumbnailConceptDetails({ concept }: ThumbnailConceptDetailsProps) {
-  const fields = [
-    { label: "Logline", value: concept.logline },
-    { label: "Composition", value: concept.composition },
-    { label: "Color notes", value: concept.color_notes },
-    { label: "Typography", value: concept.typography },
-  ];
-
-  return (
-    <div className="mt-4 grid gap-3 md:grid-cols-2">
-      {fields.map((field) => (
-        <PromptOutput
-          key={field.label}
-          label={field.label}
-          value={field.value}
-          variant="subtle"
-        />
-      ))}
-    </div>
-  );
-}
-
-function parseReferences(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function downloadJson(payload: ExportPayload) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `gemini-video-plan-${Date.now()}.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-}
-
-function formatThumbnailConcept(concept: ThumbnailConcept) {
-  return `Logline: ${concept.logline}\nComposition: ${concept.composition}\nColor notes: ${concept.color_notes}\nTypography: ${concept.typography}`;
 }
