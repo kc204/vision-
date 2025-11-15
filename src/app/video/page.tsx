@@ -2,6 +2,9 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { ImageDropzone } from "@/components/ImageDropzone";
+import { PromptOutput } from "@/components/PromptOutput";
+import { Tooltip } from "@/components/Tooltip";
 
 type AspectRatio = "16:9" | "9:16";
 
@@ -127,6 +130,7 @@ export default function VideoPlanPage() {
   const [sceneAnswers, setSceneAnswers] = useState<Record<string, string>>({});
   const [finalPlan, setFinalPlan] = useState<CompletePlanResponse | null>(null);
   const [renderJob, setRenderJob] = useState<RenderJob | null>(null);
+  const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [expandedScenes, setExpandedScenes] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [isSubmittingSeed, setIsSubmittingSeed] = useState(false);
@@ -169,6 +173,7 @@ export default function VideoPlanPage() {
     setSceneAnswers({});
     setFinalPlan(null);
     setRenderJob(null);
+    setReferenceImages([]);
     setExpandedScenes({});
   }
 
@@ -406,10 +411,29 @@ export default function VideoPlanPage() {
             className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
             placeholder="Separate with commas or new lines."
           />
+          <ImageDropzone
+            files={referenceImages}
+            onFilesChange={setReferenceImages}
+            label="Vision Seed reference images (optional)"
+            description="Drop PNG, JPG, or WEBP stills to guide segmentation and tone."
+            maxFiles={12}
+            className="mt-4"
+          />
         </div>
 
         <div>
-          <span className="block text-sm font-medium text-slate-200">Aspect ratio</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-200">Aspect ratio</span>
+            <Tooltip content="Choose the base edit orientation. 16:9 for widescreen, 9:16 for vertical.">
+              <button
+                type="button"
+                aria-label="Aspect ratio guidance"
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 text-xs text-slate-300 transition hover:border-white/40 hover:text-white"
+              >
+                i
+              </button>
+            </Tooltip>
+          </div>
           <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-slate-950/30 p-1">
             {aspectRatioOptions.map((ratio) => {
               const isActive = formValues.aspectRatio === ratio;
@@ -723,14 +747,7 @@ type DescriptionProps = {
 
 function Description({ label, value }: DescriptionProps) {
   return (
-    <div>
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {label}
-      </h4>
-      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-100">
-        {value || "—"}
-      </p>
-    </div>
+    <PromptOutput label={label} value={value} variant="subtle" />
   );
 }
 
@@ -739,37 +756,30 @@ type VisionSeedSummaryPanelProps = {
 };
 
 function VisionSeedSummaryPanel({ summary }: VisionSeedSummaryPanelProps) {
+  const items = [
+    { label: "Hook", value: summary.hook },
+    { label: "Story arc", value: summary.story_summary },
+    { label: "Tone directives", value: summary.tone_directives },
+    { label: "Palette notes", value: summary.palette_notes },
+    { label: "Reference synthesis", value: summary.reference_synthesis },
+    { label: "Aspect ratio", value: summary.aspectRatio },
+  ];
+
   return (
     <section className="rounded-3xl border border-white/10 bg-slate-950/40 p-6">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
         Vision Seed synthesis
       </h2>
-      <dl className="mt-4 grid gap-3 text-sm text-slate-200">
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Hook</dt>
-          <dd className="mt-1 text-slate-100">{summary.hook}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Story arc</dt>
-          <dd className="mt-1 text-slate-100">{summary.story_summary}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Tone directives</dt>
-          <dd className="mt-1 text-slate-100">{summary.tone_directives}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Palette notes</dt>
-          <dd className="mt-1 text-slate-100">{summary.palette_notes}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Reference synthesis</dt>
-          <dd className="mt-1 text-slate-100">{summary.reference_synthesis}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Aspect ratio</dt>
-          <dd className="mt-1 text-slate-100">{summary.aspectRatio}</dd>
-        </div>
-      </dl>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <PromptOutput
+            key={item.label}
+            label={item.label}
+            value={item.value}
+            variant="subtle"
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -779,25 +789,24 @@ type ThumbnailConceptDetailsProps = {
 };
 
 function ThumbnailConceptDetails({ concept }: ThumbnailConceptDetailsProps) {
+  const fields = [
+    { label: "Logline", value: concept.logline },
+    { label: "Composition", value: concept.composition },
+    { label: "Color notes", value: concept.color_notes },
+    { label: "Typography", value: concept.typography },
+  ];
+
   return (
-    <dl className="mt-4 grid gap-3 text-sm text-slate-100">
-      <div>
-        <dt className="text-xs uppercase tracking-wide text-slate-400">Logline</dt>
-        <dd className="mt-1 text-slate-100">{concept.logline}</dd>
-      </div>
-      <div>
-        <dt className="text-xs uppercase tracking-wide text-slate-400">Composition</dt>
-        <dd className="mt-1 text-slate-100">{concept.composition}</dd>
-      </div>
-      <div>
-        <dt className="text-xs uppercase tracking-wide text-slate-400">Color notes</dt>
-        <dd className="mt-1 text-slate-100">{concept.color_notes}</dd>
-      </div>
-      <div>
-        <dt className="text-xs uppercase tracking-wide text-slate-400">Typography</dt>
-        <dd className="mt-1 text-slate-100">{concept.typography}</dd>
-      </div>
-    </dl>
+    <div className="mt-4 grid gap-3 md:grid-cols-2">
+      {fields.map((field) => (
+        <PromptOutput
+          key={field.label}
+          label={field.label}
+          value={field.value}
+          variant="subtle"
+        />
+      ))}
+    </div>
   );
 }
 
