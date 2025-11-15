@@ -32,8 +32,8 @@ type ScenePlan = {
   broll_suggestions: string;
   graphics_callouts: string;
   editor_notes: string;
-  continuity_lock: ContinuityLock;
-  acceptance_check: string[];
+  continuity_lock?: ContinuityLock | null;
+  acceptance_check?: string[] | null;
 };
 
 type VideoPlanResponse = {
@@ -236,6 +236,10 @@ export default function VideoPlanPage() {
             <div className="space-y-4">
               {result.scenes.map((scene, index) => {
                 const isExpanded = expandedScenes[index];
+                const continuityLock = scene.continuity_lock ?? null;
+                const acceptanceChecks = Array.isArray(scene.acceptance_check)
+                  ? scene.acceptance_check.filter((item): item is string => Boolean(item))
+                  : [];
                 return (
                   <article
                     key={scene.segment_title + index}
@@ -272,37 +276,43 @@ export default function VideoPlanPage() {
                           <Description label="Voice timing hint" value={scene.voice_timing_hint} />
                           <Description label="B-roll suggestions" value={scene.broll_suggestions} />
                           <Description label="Graphics callouts" value={scene.graphics_callouts} />
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                            Continuity lock
-                          </h4>
-                          <ul className="space-y-2 text-xs text-slate-300">
-                            <li>
-                              <strong className="text-slate-200">Subject identity:</strong> {" "}
-                              {scene.continuity_lock.subject_identity}
-                            </li>
-                            <li>
-                              <strong className="text-slate-200">Lighting & palette:</strong> {" "}
-                              {scene.continuity_lock.lighting_and_palette}
-                            </li>
-                            <li>
-                              <strong className="text-slate-200">Camera grammar:</strong> {" "}
-                              {scene.continuity_lock.camera_grammar}
-                            </li>
-                            <li>
-                              <strong className="text-slate-200">Environment motif:</strong> {" "}
-                              {scene.continuity_lock.environment_motif}
-                            </li>
-                          </ul>
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                              Acceptance check
-                            </h4>
-                            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-300">
-                              {scene.acceptance_check.map((item, bulletIndex) => (
-                                <li key={bulletIndex}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
+                          {continuityLock && (
+                            <>
+                              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                                Continuity lock
+                              </h4>
+                              <ul className="space-y-2 text-xs text-slate-300">
+                                <li>
+                                  <strong className="text-slate-200">Subject identity:</strong> {" "}
+                                  {continuityLock.subject_identity || "—"}
+                                </li>
+                                <li>
+                                  <strong className="text-slate-200">Lighting & palette:</strong> {" "}
+                                  {continuityLock.lighting_and_palette || "—"}
+                                </li>
+                                <li>
+                                  <strong className="text-slate-200">Camera grammar:</strong> {" "}
+                                  {continuityLock.camera_grammar || "—"}
+                                </li>
+                                <li>
+                                  <strong className="text-slate-200">Environment motif:</strong> {" "}
+                                  {continuityLock.environment_motif || "—"}
+                                </li>
+                              </ul>
+                            </>
+                          )}
+                          {acceptanceChecks.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                                Acceptance check
+                              </h4>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-300">
+                                {acceptanceChecks.map((item, bulletIndex) => (
+                                  <li key={bulletIndex}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
