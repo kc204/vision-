@@ -16,6 +16,7 @@ import {
   shotSizes,
   type VisualOption,
 } from "@/lib/visualOptions";
+import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 
 type LoopSelectedOptions = {
   cameraAngles: string[];
@@ -85,6 +86,7 @@ export default function LoopBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
+  const { nanoBananaApiKey } = useProviderCredentials();
 
   useEffect(() => {
     if (useSampleLoop) {
@@ -175,9 +177,14 @@ export default function LoopBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (nanoBananaApiKey?.trim()) {
+        headers["X-Nano-Banana-Api-Key"] = nanoBananaApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 

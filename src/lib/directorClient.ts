@@ -25,10 +25,16 @@ const VEO_VIDEO_MODELS = parseModelList(
 
 export type DirectorProviderCredentials = {
   google?: {
-    accessToken: string;
+    accessToken?: string;
+  };
+  gemini?: {
+    apiKey?: string;
+  };
+  veo?: {
+    apiKey?: string;
   };
   nanoBanana?: {
-    apiKey: string;
+    apiKey?: string;
   };
 };
 
@@ -62,7 +68,9 @@ async function callGeminiImageProvider(
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
   const googleAccessToken = credentials?.google?.accessToken;
+  const providedApiKey = getNonEmptyString(credentials?.gemini?.apiKey);
   const fallbackApiKey =
+    providedApiKey ??
     getNonEmptyString(process.env.GEMINI_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
 
@@ -194,7 +202,11 @@ async function callVeoVideoProvider(
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
   const googleAccessToken = credentials?.google?.accessToken;
+  const providedApiKey =
+    getNonEmptyString(credentials?.veo?.apiKey) ??
+    getNonEmptyString(credentials?.gemini?.apiKey);
   const fallbackApiKey =
+    providedApiKey ??
     getNonEmptyString(process.env.VEO_API_KEY) ??
     getNonEmptyString(process.env.GOOGLE_API_KEY);
 

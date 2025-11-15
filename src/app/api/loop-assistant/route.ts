@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callGeminiChat, GeminiChatMessage } from "@/lib/geminiClient";
 
 type ValidationResult =
@@ -36,9 +35,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const session = await auth();
   const result = await callGeminiChat(systemPrompt, validation.value, {
-    googleAccessToken: session?.providerTokens?.google?.accessToken,
+    apiKey: getHeaderValue(request, ["x-gemini-api-key", "x-google-api-key"]),
   });
   if (!result.success) {
     const { status, error, details } = result;
@@ -50,6 +48,16 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ reply: result.reply });
+}
+
+function getHeaderValue(request: Request, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = request.headers.get(name);
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 function parseMessages(value: unknown): ValidationResult {

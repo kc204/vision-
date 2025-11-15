@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
 import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
   DirectorRequest,
@@ -16,7 +15,7 @@ type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
 
-const REQUIRE_AUTHENTICATED_SESSION = parseEnvBoolean(
+const REQUIRE_PROVIDER_CREDENTIALS = parseEnvBoolean(
   process.env.DIRECTOR_CORE_REQUIRE_API_KEY ?? "true"
 );
 
@@ -41,24 +40,79 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await auth();
   const credentials: DirectorProviderCredentials = {};
 
-  const googleAccessToken = session?.providerTokens?.google?.accessToken;
-  if (googleAccessToken) {
-    credentials.google = { accessToken: googleAccessToken };
+  const geminiApiKey = getHeaderValue(request, [
+    "x-gemini-api-key",
+    "x-google-api-key",
+  ]);
+  if (geminiApiKey) {
+    credentials.gemini = { apiKey: geminiApiKey };
   }
 
-  const nanoBananaKey = session?.providerTokens?.nanoBanana?.apiKey;
+  const veoApiKey = getHeaderValue(request, [
+    "x-veo-api-key",
+    "x-google-api-key",
+    "x-gemini-api-key",
+  ]);
+  if (veoApiKey) {
+    credentials.veo = { apiKey: veoApiKey };
+  }
+
+  const nanoBananaKey = getHeaderValue(request, ["x-nano-banana-api-key"]);
   if (nanoBananaKey) {
     credentials.nanoBanana = { apiKey: nanoBananaKey };
   }
 
-  if (REQUIRE_AUTHENTICATED_SESSION && !credentials.google) {
-    return NextResponse.json(
-      { error: "Sign in with Google to access Director Core." },
-      { status: 401 }
-    );
+  if (REQUIRE_PROVIDER_CREDENTIALS) {
+    const geminiReady =
+      Boolean(credentials.gemini?.apiKey) || hasEnvCredential(process.env.GEMINI_API_KEY) || hasEnvCredential(process.env.GOOGLE_API_KEY);
+    const veoReady =
+      Boolean(credentials.veo?.apiKey) ||
+      Boolean(credentials.gemini?.apiKey) ||
+      hasEnvCredential(process.env.VEO_API_KEY) ||
+      hasEnvCredential(process.env.GOOGLE_API_KEY);
+    const nanoReady =
+      Boolean(credentials.nanoBanana?.apiKey) ||
+      hasEnvCredential(process.env.NANO_BANANA_API_KEY);
+
+    switch (validation.value.mode) {
+      case "image_prompt":
+        if (!geminiReady) {
+          return NextResponse.json(
+            {
+              error:
+                "Provide a Gemini API key via the X-Gemini-Api-Key header or set GEMINI_API_KEY to generate image prompts.",
+            },
+            { status: 401 }
+          );
+        }
+        break;
+      case "video_plan":
+        if (!veoReady) {
+          return NextResponse.json(
+            {
+              error:
+                "Provide a Veo-capable API key via the X-Veo-Api-Key header or set VEO_API_KEY to generate video plans.",
+            },
+            { status: 401 }
+          );
+        }
+        break;
+      case "loop_sequence":
+        if (!nanoReady) {
+          return NextResponse.json(
+            {
+              error:
+                "Provide a Nano Banana API key via the X-Nano-Banana-Api-Key header or set NANO_BANANA_API_KEY to plan loops.",
+            },
+            { status: 401 }
+          );
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   try {
@@ -182,6 +236,20 @@ function parseImagePromptPayload(value: unknown): ValidationResult {
   };
 
   return { ok: true, value: payload };
+}
+
+function getHeaderValue(request: Request, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = request.headers.get(name);
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function hasEnvCredential(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function parseVideoPlanPayload(value: unknown): ValidationResult {
