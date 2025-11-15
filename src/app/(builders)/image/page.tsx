@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
+import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import type {
   DirectorMediaAsset,
   DirectorRequest,
@@ -145,9 +147,9 @@ export default function ImageBuilderPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState("");
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
   const [useSampleSeed, setUseSampleSeed] = useState(false);
+  const { status } = useSession();
 
   useEffect(() => {
     if (useSampleSeed) {
@@ -237,11 +239,16 @@ export default function ImageBuilderPage() {
     selectedVisualOptions.length > 0 ||
     files.length > 0;
 
-  const canSubmit = hasSeedContent && !isSubmitting;
+  const canSubmit = hasSeedContent && !isSubmitting && status === "authenticated";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
+
+    if (status !== "authenticated") {
+      setError("Sign in with Google to generate prompts.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -263,15 +270,9 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
-      const headers: HeadersInit = { "Content-Type": "application/json" };
-      const trimmedKey = apiKey.trim();
-      if (trimmedKey.length) {
-        headers["x-provider-api-key"] = trimmedKey;
-      }
-
       const response = await fetch("/api/director", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
       });
 
@@ -484,25 +485,7 @@ export default function ImageBuilderPage() {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="block space-y-1">
-            <span className="text-sm font-semibold text-slate-200">
-              Provider API key (optional)
-            </span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Gemini, OpenAI, etc."
-              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            />
-          </label>
-          <p className="text-xs text-slate-400">
-            Stored only in this session and forwarded with your generation request.
-          </p>
-        </div>
+        <ProviderCredentialPanel />
 
         <button
           type="submit"
