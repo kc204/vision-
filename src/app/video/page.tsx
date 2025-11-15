@@ -181,10 +181,11 @@ export default function VideoPlanPage() {
     resetFlow();
 
     try {
-      const response = await fetch("/api/generate-video-plan", {
+      const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          type: "video_plan" as const,
           visionSeed: {
             scriptText: formValues.scriptText,
             tone: formValues.tone,
@@ -199,12 +200,18 @@ export default function VideoPlanPage() {
         throw new Error("Request failed");
       }
 
-      const data = (await response.json()) as CollectDetailsResponse;
-      setCollectResult(data);
-      const defaultAnswers = Object.fromEntries(
-        data.segmentation.map((scene) => [scene.id, ""])
-      );
-      setSceneAnswers(defaultAnswers);
+      const { text } = (await response.json()) as { text: string };
+      try {
+        const data = JSON.parse(text) as CollectDetailsResponse;
+        setCollectResult(data);
+        const defaultAnswers = Object.fromEntries(
+          data.segmentation.map((scene) => [scene.id, ""])
+        );
+        setSceneAnswers(defaultAnswers);
+      } catch (parseError) {
+        console.error("Invalid director response", parseError, text);
+        throw new Error("Invalid director response");
+      }
     } catch (requestError) {
       console.error(requestError);
       setError(
@@ -229,6 +236,7 @@ export default function VideoPlanPage() {
     );
 
     const payload = {
+      type: "video_plan" as const,
       visionSeed: {
         scriptText: formValues.scriptText,
         tone: formValues.tone,
@@ -250,7 +258,7 @@ export default function VideoPlanPage() {
     }
 
     try {
-      const response = await fetch("/api/generate-video-plan", {
+      const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -260,10 +268,16 @@ export default function VideoPlanPage() {
         throw new Error("Request failed");
       }
 
-      const data = (await response.json()) as CompletePlanResponse;
-      setFinalPlan(data);
-      setRenderJob(data.renderJob ?? null);
-      setExpandedScenes({});
+      const { text } = (await response.json()) as { text: string };
+      try {
+        const data = JSON.parse(text) as CompletePlanResponse;
+        setFinalPlan(data);
+        setRenderJob(data.renderJob ?? null);
+        setExpandedScenes({});
+      } catch (parseError) {
+        console.error("Invalid director response", parseError, text);
+        throw new Error("Invalid director response");
+      }
     } catch (requestError) {
       console.error(requestError);
       setError(
@@ -283,10 +297,11 @@ export default function VideoPlanPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/generate-video-plan", {
+      const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          type: "video_plan" as const,
           visionSeed: {
             scriptText: formValues.scriptText,
             tone: formValues.tone,
@@ -308,9 +323,15 @@ export default function VideoPlanPage() {
         throw new Error("Request failed");
       }
 
-      const data = (await response.json()) as CompletePlanResponse;
-      setFinalPlan(data);
-      setRenderJob(data.renderJob ?? null);
+      const { text } = (await response.json()) as { text: string };
+      try {
+        const data = JSON.parse(text) as CompletePlanResponse;
+        setFinalPlan(data);
+        setRenderJob(data.renderJob ?? null);
+      } catch (parseError) {
+        console.error("Invalid director response", parseError, text);
+        throw new Error("Invalid director response");
+      }
     } catch (requestError) {
       console.error(requestError);
       setError("Gemini render request failed. Try again later.");

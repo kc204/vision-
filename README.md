@@ -25,18 +25,10 @@ The app exposes two primary modules:
 - `/video` – YouTube Cinematic Director (video scene planner)
 
 ## Environment variables
-Set an OpenAI API key before calling the generation endpoints:
-
-```bash
-export OPENAI_API_KEY=your_api_key
-# Optional: override the default model (defaults to gpt-4o-mini)
-export OPENAI_MODEL=gpt-4.1-mini
-```
-
 ## Tech stack
 - Next.js App Router with TypeScript
 - Tailwind CSS for styling
-- OpenAI Responses API for prompt generation
+- Director Core (Gemini) orchestration client stub
 
 ## Folder structure
 ```
@@ -46,15 +38,18 @@ src/
     image/page.tsx           # Vision Architect UI
     video/page.tsx           # YouTube Cinematic Director UI
     api/
-      generate-image-prompt/route.ts
-      generate-video-plan/route.ts
+      director/route.ts
   components/
     copy-button.tsx
   lib/
+    directorClient.ts
+    directorTypes.ts
+    prompts/
+      directorCore.ts
     visualOptions.ts
 ```
 
 ## Notes
-- Both API routes expect JSON POST requests and respond with JSON.
-- If the OpenAI response cannot be parsed, the API returns a 500 error with a friendly message for the UI.
+- The `/api/director` endpoint expects a JSON POST body that matches one of the `DirectorRequest` variants and returns `{ "text": string }` from the future Director Core integration.
+- The Gemini-based Director Core client is currently a stub and will throw until the service is wired up.
 - Initial persistence is in-memory only; future iterations can add database-backed history.

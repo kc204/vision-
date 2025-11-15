@@ -58,10 +58,11 @@ export default function ImagePromptBuilderPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/generate-image-prompt", {
+      const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          type: "image_prompt" as const,
           visionSeedText,
           modelChoice,
           cameraAngleId: cameraAngleId || undefined,
@@ -79,8 +80,14 @@ export default function ImagePromptBuilderPage() {
         throw new Error("Request failed");
       }
 
-      const data = (await response.json()) as ImagePromptResponse;
-      setResult(data);
+      const { text } = (await response.json()) as { text: string };
+      try {
+        const parsed = JSON.parse(text) as ImagePromptResponse;
+        setResult(parsed);
+      } catch (parseError) {
+        console.error("Invalid director response", parseError, text);
+        throw new Error("Invalid director response");
+      }
     } catch (requestError) {
       console.error(requestError);
       setError(
