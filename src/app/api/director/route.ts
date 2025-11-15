@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import type {
+  ImagePromptDirectorRequest,
+  ImagePromptPayload,
+  ImagePromptSelectedOptions,
+  VisualOptionSelection,
+} from "@/lib/directorTypes";
 
 type ContinuityLock = {
   subject_identity: string;
@@ -57,42 +63,138 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as Partial<LoopDirectorRequest>;
+    const rawBody = (await request.json()) as unknown;
 
-    if (body.mode !== "loop_sequence") {
+    if (isImagePromptRequest(rawBody)) {
+      return await handleImagePrompt(rawBody);
+    }
+
+    if (isLoopSequenceRequest(rawBody)) {
+      return await handleLoopSequence(rawBody);
+    }
+
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Unsupported director mode" },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error("Unhandled director error", error);
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Failed to process director request" },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleImagePrompt(
+  request: ImagePromptDirectorRequest
+): Promise<NextResponse> {
+  const payload = request.payload as ImagePromptPayload;
+  const visionSeed = payload.vision_seed?.trim();
+
+  if (!visionSeed) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "vision_seed is required" },
+      { status: 400 }
+    );
+  }
+
+  const moodProfile = payload.mood_profile?.trim() ?? "";
+  const constraints = payload.constraints?.trim() ?? "";
+  const referenceCount = Array.isArray(payload.references)
+    ? payload.references.length
+    : 0;
+  const referenceNote = referenceCount
+    ? `The user supplied ${referenceCount} reference image(s) encoded as base64. Use them to ground continuity and tone but never echo the raw data.`
+    : "No reference images were provided.";
+
+  const cinematicNotes = formatSelectedOptions(payload.selectedOptions);
+
+  const systemPrompt =
+    "You are Vision Architect Director — an assistant who turns structured creative briefs into production-ready prompts for image diffusion models. Respond as plain text with exactly three labeled sections: Positive Prompt:, Negative Prompt:, Suggested Settings:.";
+
+  const userPrompt = `MODE: image_prompt
+VISION SEED:
+${visionSeed}
+
+MOOD PROFILE:
+${moodProfile || "Not specified"}
+
+CONSTRAINTS:
+${constraints || "None provided"}
+
+MODEL PREFERENCE:
+${payload.model}
+
+CINEMATIC OPTIONS:
+${cinematicNotes || "No additional cinematic guidance."}
+
+${referenceNote}
+
+Craft a polished positive prompt that weaves in the model preference, cinematic cues, and emotional intent. Include a concise negative prompt calling out elements to avoid. Provide Suggested Settings as short bullet lines or key-value hints — do not use JSON.`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    });
+
+    const content = completion.choices[0]?.message?.content;
+
+    if (!content) {
+      console.error("OpenAI returned no content for image prompt", completion);
       return NextResponse.json<DirectorErrorResponse>(
-        { error: "Unsupported director mode" },
-        { status: 400 }
+        { error: "Failed to generate image prompt" },
+        { status: 500 }
       );
     }
 
-    if (!body.visionSeed || !body.visionSeed.trim()) {
-      return NextResponse.json<DirectorErrorResponse>(
-        { error: "visionSeed is required" },
-        { status: 400 }
-      );
-    }
+    return new NextResponse(content, {
+      status: 200,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  } catch (error) {
+    console.error("Failed to generate image prompt", error);
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "Failed to generate image prompt" },
+      { status: 500 }
+    );
+  }
+}
 
-    const startFrame = Number.isFinite(body.startFrame)
-      ? Number(body.startFrame)
-      : 0;
-    const loopLength = Number.isFinite(body.loopLength)
-      ? Math.max(1, Number(body.loopLength))
-      : 48;
+async function handleLoopSequence(
+  body: LoopDirectorRequest
+): Promise<NextResponse> {
+  if (!body.visionSeed || !body.visionSeed.trim()) {
+    return NextResponse.json<DirectorErrorResponse>(
+      { error: "visionSeed is required" },
+      { status: 400 }
+    );
+  }
 
-    const includeMoodProfile = Boolean(body.includeMoodProfile);
+  const startFrame = Number.isFinite(body.startFrame)
+    ? Number(body.startFrame)
+    : 0;
+  const loopLength = Number.isFinite(body.loopLength)
+    ? Math.max(1, Number(body.loopLength))
+    : 48;
 
-    const referenceHint = body.referenceImage
-      ? "The user also supplied a base64-encoded reference image. Use it to inform continuity notes and tone, but do not echo the raw string."
-      : "No reference image was provided.";
+  const includeMoodProfile = Boolean(body.includeMoodProfile);
 
-    const moodProfileDirective = includeMoodProfile
-      ? "If helpful, summarize a short mood profile that can be reused when refining the loop later."
-      : "Do not invent a mood profile section unless the loop inherently requires it.";
+  const referenceHint = body.referenceImage
+    ? "The user also supplied a base64-encoded reference image. Use it to inform continuity notes and tone, but do not echo the raw string."
+    : "No reference image was provided.";
 
-    const systemPrompt = `You are Loop Sequence Director — an animation planning assistant for short seamless loops. You translate casual language into production-ready JSON instructions. Always respond with JSON only.`;
+  const moodProfileDirective = includeMoodProfile
+    ? "If helpful, summarize a short mood profile that can be reused when refining the loop later."
+    : "Do not invent a mood profile section unless the loop inherently requires it.";
 
-    const userPrompt = `MODE: loop_sequence
+  const systemPrompt = `You are Loop Sequence Director — an animation planning assistant for short seamless loops. You translate casual language into production-ready JSON instructions. Always respond with JSON only.`;
+
+  const userPrompt = `MODE: loop_sequence
 VISION SEED:
 ${body.visionSeed.trim()}
 
@@ -136,6 +238,7 @@ Return a JSON array of cycles using this schema:
   }
 ]`;
 
+  try {
     const completion = await openai.chat.completions.create({
       model: MODEL,
       messages: [
@@ -166,7 +269,7 @@ Return a JSON array of cycles using this schema:
 
     return NextResponse.json(parsed);
   } catch (error) {
-    console.error("Unhandled director error", error);
+    console.error("Failed to generate loop sequence", error);
     return NextResponse.json<DirectorErrorResponse>(
       { error: "Failed to generate loop sequence" },
       { status: 500 }
@@ -198,13 +301,110 @@ function tryParseLoopCycles(content: string): LoopCycleJSON[] | null {
       if (Array.isArray(parsed)) {
         return parsed as LoopCycleJSON[];
       }
-      if (Array.isArray((parsed as { cycles?: unknown }).cycles)) {
-        return (parsed as { cycles: LoopCycleJSON[] }).cycles;
-      }
     } catch (error) {
-      console.warn("Failed to parse candidate", error);
+      console.error("Failed to parse candidate loop JSON", error);
     }
   }
 
   return null;
+}
+
+function isImagePromptRequest(value: unknown): value is ImagePromptDirectorRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.mode !== "image_prompt") {
+    return false;
+  }
+
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const data = payload as ImagePromptPayload;
+  if (typeof data.vision_seed !== "string") {
+    return false;
+  }
+
+  if (typeof data.model !== "string") {
+    return false;
+  }
+
+  if (!isImagePromptSelectedOptions(data.selectedOptions)) {
+    return false;
+  }
+
+  if (
+    data.references !== undefined &&
+    (!Array.isArray(data.references) ||
+      data.references.some((item) => typeof item !== "string"))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function isImagePromptSelectedOptions(
+  value: ImagePromptSelectedOptions | undefined
+): value is ImagePromptSelectedOptions {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const { motionCues, stylePacks } = value;
+
+  if (!Array.isArray(motionCues) || !Array.isArray(stylePacks)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isLoopSequenceRequest(value: unknown): value is LoopDirectorRequest {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return record.mode === "loop_sequence";
+}
+
+function formatSelectedOptions(options: ImagePromptSelectedOptions): string {
+  const lines: string[] = [];
+
+  const pushSelection = (label: string, selection?: VisualOptionSelection) => {
+    if (selection) {
+      lines.push(`${label}: ${selection.label} — ${selection.prompt_snippet}`);
+    }
+  };
+
+  pushSelection("Camera angle", options.cameraAngle);
+  pushSelection("Shot size", options.shotSize);
+  pushSelection("Composition", options.compositionTechnique);
+  pushSelection("Lighting", options.lightingVocabulary);
+  pushSelection("Color palette", options.colorPalette);
+
+  if (options.motionCues.length > 0) {
+    lines.push(
+      "Motion cues:\n" +
+        options.motionCues
+          .map((cue) => `- ${cue.label} — ${cue.prompt_snippet}`)
+          .join("\n")
+    );
+  }
+
+  if (options.stylePacks.length > 0) {
+    lines.push(
+      "Style packs:\n" +
+        options.stylePacks
+          .map((pack) => `- ${pack.label} — ${pack.prompt_snippet}`)
+          .join("\n")
+    );
+  }
+
+  return lines.join("\n\n");
 }

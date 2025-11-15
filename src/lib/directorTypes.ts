@@ -1,14 +1,31 @@
+export type VisualOptionSelection = {
+  id: string;
+  label: string;
+  prompt_snippet: string;
+};
+
+export type ImagePromptSelectedOptions = {
+  cameraAngle?: VisualOptionSelection;
+  shotSize?: VisualOptionSelection;
+  compositionTechnique?: VisualOptionSelection;
+  lightingVocabulary?: VisualOptionSelection;
+  colorPalette?: VisualOptionSelection;
+  motionCues: VisualOptionSelection[];
+  stylePacks: VisualOptionSelection[];
+};
+
+export type ImagePromptPayload = {
+  vision_seed: string;
+  mood_profile: string;
+  constraints: string;
+  model: "sdxl" | "flux" | "illustrious";
+  selectedOptions: ImagePromptSelectedOptions;
+  references?: string[];
+};
+
 export type ImagePromptDirectorRequest = {
-  type: "image_prompt";
-  visionSeedText: string;
-  modelChoice: "sdxl" | "flux" | "illustrious";
-  cameraAngleId?: string;
-  shotSizeId?: string;
-  compositionTechniqueId?: string;
-  lightingVocabularyId?: string;
-  colorPaletteId?: string;
-  motionCueIds?: string[];
-  stylePackIds?: string[];
+  mode: "image_prompt";
+  payload: ImagePromptPayload;
 };
 
 export type AspectRatio = "16:9" | "9:16";
@@ -26,12 +43,12 @@ export type SceneAnswer = {
 };
 
 export type LoopSequenceDirectorRequest = {
-  type: "loop_sequence";
-  loopSeedText: string;
-  durationSeconds?: number;
-  aspectRatio?: AspectRatio | "1:1";
-  vibe?: string;
-  references?: string[];
+  mode: "loop_sequence";
+  visionSeed: string;
+  startFrame?: number;
+  loopLength?: number;
+  includeMoodProfile?: boolean;
+  referenceImage?: string | null;
 };
 
 export type VideoPlanDirectorRequest = {

@@ -12,10 +12,21 @@ import {
   lightingVocabulary,
   motionCues,
   stylePacks,
-  VisualOption,
+  type VisualOption,
   groupOptions,
   searchOptions,
+  findVisualSnippet,
+  findVisualSnippets,
 } from "@/lib/visualOptions";
+import type {
+  DirectorRequest,
+  ImagePromptPayload,
+  ImagePromptSelectedOptions,
+  VisualOptionSelection,
+} from "@/lib/directorTypes";
+
+const helperText =
+  "Write how you’d brief a creative partner—Director Core translates it into cinematic language.";
 
 const models = [
   { value: "sdxl", label: "SDXL" },
@@ -25,33 +36,71 @@ const models = [
 
 type ModelChoice = (typeof models)[number]["value"];
 
-type ImagePromptResponse = {
+type ImagePromptResult = {
   positivePrompt: string;
   negativePrompt: string;
-  summary: string;
-  settings: Record<string, string | number>;
-  moodMemory?: string;
+  suggestedSettings: string;
+  raw: string;
+  visionSeed: string;
 };
 
+type VisionSeedField = {
+  id: "subject" | "environment" | "moment";
+  label: string;
+  placeholder: string;
+};
+
+const visionSeedFields: VisionSeedField[] = [
+  {
+    id: "subject",
+    label: "Subject & focus",
+    placeholder: "Who or what are we spotlighting?",
+  },
+  {
+    id: "environment",
+    label: "Environment",
+    placeholder: "Where does this moment take place?",
+  },
+  {
+    id: "moment",
+    label: "Moment to capture",
+    placeholder: "What is happening in this exact frame?",
+  },
+];
+
 export default function ImagePromptBuilderPage() {
-  const [visionSeedText, setVisionSeedText] = useState("");
   const [modelChoice, setModelChoice] = useState<ModelChoice>("sdxl");
+  const [visionSeedValues, setVisionSeedValues] = useState<Record<VisionSeedField["id"], string>>({
+    subject: "",
+    environment: "",
+    moment: "",
+  });
+  const [moodProfile, setMoodProfile] = useState("");
+  const [constraints, setConstraints] = useState("");
   const [cameraAngleId, setCameraAngleId] = useState<string>("");
   const [shotSizeId, setShotSizeId] = useState<string>("");
-  const [compositionTechniqueId, setCompositionTechniqueId] =
-    useState<string>("");
+  const [compositionTechniqueId, setCompositionTechniqueId] = useState<string>("");
   const [lightingVocabularyId, setLightingVocabularyId] = useState<string>("");
   const [colorPaletteId, setColorPaletteId] = useState<string>("");
   const [motionCueIds, setMotionCueIds] = useState<string[]>([]);
   const [stylePackIds, setStylePackIds] = useState<string[]>([]);
-  const [visionSeedImages, setVisionSeedImages] = useState<File[]>([]);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ImagePromptResponse | null>(null);
+  const [result, setResult] = useState<ImagePromptResult | null>(null);
 
   const disableGenerate = useMemo(() => {
-    return visionSeedText.trim().length === 0 || isLoading;
-  }, [visionSeedText, isLoading]);
+    const missingSeed = visionSeedFields.some(({ id }) =>
+      visionSeedValues[id].trim().length === 0
+    );
+    return missingSeed || isLoading;
+  }, [visionSeedValues, isLoading]);
+
+  const assembledVisionSeed = useMemo(() => {
+    return visionSeedFields
+      .map(({ label, id }) => `${label}: ${visionSeedValues[id].trim()}`)
+      .join("\n");
+  }, [visionSeedValues]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,77 +110,130 @@ export default function ImagePromptBuilderPage() {
     setError(null);
 
     try {
+      const references = await encodeFiles(referenceFiles);
+      const payload: ImagePromptPayload = {
+        vision_seed: assembledVisionSeed,
+        mood_profile: moodProfile.trim(),
+        constraints: constraints.trim(),
+        model: modelChoice,
+        selectedOptions: buildSelectedOptions({
+          cameraAngleId,
+          shotSizeId,
+          compositionTechniqueId,
+          lightingVocabularyId,
+          colorPaletteId,
+          motionCueIds,
+          stylePackIds,
+        }),
+        references: references.length > 0 ? references : undefined,
+      };
+
+      const requestBody: DirectorRequest = {
+        mode: "image_prompt",
+        payload,
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "image_prompt" as const,
-          visionSeedText,
-          modelChoice,
-          cameraAngleId: cameraAngleId || undefined,
-          shotSizeId: shotSizeId || undefined,
-          compositionTechniqueId:
-            compositionTechniqueId || undefined,
-          lightingVocabularyId: lightingVocabularyId || undefined,
-          colorPaletteId: colorPaletteId || undefined,
-          motionCueIds: motionCueIds.length ? motionCueIds : undefined,
-          stylePackIds: stylePackIds.length ? stylePackIds : undefined,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         throw new Error("Request failed");
       }
 
-      const { text } = (await response.json()) as { text: string };
-      try {
-        const parsed = JSON.parse(text) as ImagePromptResponse;
-        setResult(parsed);
-      } catch (parseError) {
-        console.error("Invalid director response", parseError, text);
-        throw new Error("Invalid director response");
-      }
+      const text = await response.text();
+      const parsed = parseDirectorResponse(text, assembledVisionSeed);
+      setResult(parsed);
     } catch (requestError) {
       console.error(requestError);
       setError(
-        "Something went wrong generating your image prompt. Please try again."
+        "Something went wrong translating your Vision Seed. Please try again."
       );
+      setResult(null);
     } finally {
       setIsLoading(false);
     }
   }
 
-  const helperText = "Write this like you’d text a friend. No art or film jargon needed.";
-
   return (
-    <section className="grid gap-8 lg:grid-cols-2">
+    <section className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <form
         onSubmit={handleSubmit}
         className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
-        <div>
-          <h1 className="text-3xl font-semibold text-white">
-            Create a cinematic image
-          </h1>
-          <p className="mt-2 text-sm text-slate-300">
-            {"Describe what you want (Vision Seed)"}
+        <header className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+            Vision Architect Studio
           </p>
-          <p className="mt-1 text-xs text-slate-400">{helperText}</p>
-          <textarea
-            value={visionSeedText}
-            onChange={(event) => setVisionSeedText(event.target.value)}
-            rows={6}
-            className="mt-4 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            placeholder="A kid astronaut discovering a glowing forest on an alien planet"
-          />
-          <ImageDropzone
-            files={visionSeedImages}
-            onFilesChange={setVisionSeedImages}
-            label="Vision Seed reference images (optional)"
-            description="Drop PNG, JPG, or WEBP frames to give Director Core visual grounding."
-            maxFiles={6}
-            className="mt-4"
-          />
+          <h1 className="text-3xl font-semibold text-white">
+            Build a cinematic image brief
+          </h1>
+          <p className="text-sm text-slate-300">
+            Complete the Vision Seed, layer in mood and constraints, then let
+            Director Core craft the production-ready prompts.
+          </p>
+          <p className="text-xs text-slate-400">{helperText}</p>
+        </header>
+
+        <fieldset className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/30 p-4">
+          <legend className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Vision Seed (required)
+          </legend>
+          {visionSeedFields.map((field) => (
+            <div key={field.id} className="space-y-2">
+              <label className="block text-sm font-medium text-slate-200">
+                {field.label}
+              </label>
+              <textarea
+                required
+                value={visionSeedValues[field.id]}
+                onChange={(event) =>
+                  setVisionSeedValues((previous) => ({
+                    ...previous,
+                    [field.id]: event.target.value,
+                  }))
+                }
+                rows={field.id === "moment" ? 4 : 3}
+                className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
+        </fieldset>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-200">
+              Mood profile
+            </label>
+            <textarea
+              value={moodProfile}
+              onChange={(event) => setMoodProfile(event.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              placeholder="Dreamy optimism, nostalgic warmth, quiet awe"
+            />
+            <p className="text-xs text-slate-400">
+              Describe the emotional temperature or tone the image should carry.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-200">
+              Constraints & must-haves
+            </label>
+            <textarea
+              value={constraints}
+              onChange={(event) => setConstraints(event.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              placeholder="Keep character proportions realistic, avoid text overlays"
+            />
+            <p className="text-xs text-slate-400">
+              Call out continuity notes, brand requirements, or guardrails.
+            </p>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -144,16 +246,28 @@ export default function ImagePromptBuilderPage() {
             className="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
           >
             {models.map((model) => (
-              <option key={model.value} value={model.value} className="text-slate-900">
+              <option
+                key={model.value}
+                value={model.value}
+                className="text-slate-900"
+              >
                 {model.label}
               </option>
             ))}
           </select>
         </div>
 
+        <ImageDropzone
+          files={referenceFiles}
+          onFilesChange={setReferenceFiles}
+          label="Reference frames (optional)"
+          description="Drop PNG, JPG, or WEBP frames to ground the look."
+          maxFiles={6}
+        />
+
         <fieldset className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/30 p-4">
           <legend className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Optional: Help me dial in the shot
+            Cinematic guidance (optional)
           </legend>
           <VisualOptionBrowser
             label="Camera angle"
@@ -221,7 +335,7 @@ export default function ImagePromptBuilderPage() {
           disabled={disableGenerate}
           className="w-full rounded-xl bg-canvas-accent px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 disabled:cursor-not-allowed disabled:bg-slate-600"
         >
-          {isLoading ? "Generating…" : "Generate Image Prompt"}
+          {isLoading ? "Generating…" : "Generate prompts"}
         </button>
 
         {error && (
@@ -234,13 +348,17 @@ export default function ImagePromptBuilderPage() {
       <aside className="space-y-4">
         {!result && !error && (
           <div className="h-full rounded-3xl border border-dashed border-white/10 bg-slate-950/30 p-6 text-center text-sm text-slate-400">
-            Your prompt will appear here after you generate.
+            Your Director Core prompt kit will appear here once generated.
           </div>
         )}
 
         {result && (
           <div className="space-y-6">
-            <PromptOutput label="Summary" value={result.summary} />
+            <PromptOutput
+              label="Vision Seed"
+              value={result.visionSeed}
+              copyLabel="Copy Vision Seed"
+            />
             <PromptOutput
               label="Positive prompt"
               value={result.positivePrompt}
@@ -255,16 +373,21 @@ export default function ImagePromptBuilderPage() {
             />
             <PromptOutput
               label="Suggested settings"
-              value={JSON.stringify(result.settings ?? {}, null, 2)}
-              isCode
-              copyLabel="Copy settings JSON"
+              value={result.suggestedSettings}
+              copyLabel="Copy suggested settings"
+            />
+            <PromptOutput
+              label="Director output"
+              value={result.raw}
+              copyLabel="Copy full response"
+              variant="subtle"
             />
           </div>
         )}
 
         {error && (
           <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-100">
-            Something went wrong generating your image prompt. Please try again.
+            {error}
           </div>
         )}
       </aside>
@@ -430,8 +553,8 @@ function VisualOptionBrowser({
             {noMatches ? (
               <p className="text-xs text-slate-400">No matches. Try a different keyword.</p>
             ) : (
-              groupedOptions.map((group) => (
-                group.options.length > 0 && (
+              groupedOptions.map((group) =>
+                group.options.length > 0 ? (
                   <div key={group.id} className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       {group.label}
@@ -460,8 +583,8 @@ function VisualOptionBrowser({
                       })}
                     </div>
                   </div>
-                )
-              ))
+                ) : null
+              )
             )}
           </div>
         </div>
@@ -470,3 +593,160 @@ function VisualOptionBrowser({
   );
 }
 
+type SelectedOptionIds = {
+  cameraAngleId: string;
+  shotSizeId: string;
+  compositionTechniqueId: string;
+  lightingVocabularyId: string;
+  colorPaletteId: string;
+  motionCueIds: string[];
+  stylePackIds: string[];
+};
+
+function buildSelectedOptions(ids: SelectedOptionIds): ImagePromptSelectedOptions {
+  const toSelection = (option: VisualOption | undefined): VisualOptionSelection | undefined =>
+    option
+      ? {
+          id: option.id,
+          label: option.label,
+          prompt_snippet: option.promptSnippet,
+        }
+      : undefined;
+
+  const cameraAngle = toSelection(findVisualSnippet(cameraAngles, ids.cameraAngleId));
+  const shotSize = toSelection(findVisualSnippet(shotSizes, ids.shotSizeId));
+  const composition = toSelection(
+    findVisualSnippet(compositionTechniques, ids.compositionTechniqueId)
+  );
+  const lighting = toSelection(
+    findVisualSnippet(lightingVocabulary, ids.lightingVocabularyId)
+  );
+  const colorPalette = toSelection(findVisualSnippet(colorPalettes, ids.colorPaletteId));
+
+  const toSelections = (options: VisualOption[]): VisualOptionSelection[] =>
+    options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      prompt_snippet: option.promptSnippet,
+    }));
+
+  const motionCueSelections = toSelections(
+    findVisualSnippets(motionCues, ids.motionCueIds)
+  );
+  const stylePackSelections = toSelections(
+    findVisualSnippets(stylePacks, ids.stylePackIds)
+  );
+
+  return {
+    cameraAngle,
+    shotSize,
+    compositionTechnique: composition,
+    lightingVocabulary: lighting,
+    colorPalette,
+    motionCues: motionCueSelections,
+    stylePacks: stylePackSelections,
+  };
+}
+
+async function encodeFiles(files: File[]): Promise<string[]> {
+  const encodings = await Promise.all(files.map((file) => readFileAsBase64(file)));
+  return encodings.filter((value): value is string => value.length > 0);
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        const base64 = result.replace(/^data:[^;]+;base64,/, "");
+        resolve(base64);
+      } else {
+        resolve("");
+      }
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to read file"));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+type SectionKey = "positive" | "negative" | "settings";
+
+const sectionHeadingMap: Record<string, SectionKey> = {
+  "positive prompt": "positive",
+  "positive": "positive",
+  "negative prompt": "negative",
+  "negative": "negative",
+  "suggested settings": "settings",
+  "settings": "settings",
+};
+
+function parseDirectorResponse(text: string, visionSeed: string): ImagePromptResult {
+  const sections: Record<SectionKey, string[]> = {
+    positive: [],
+    negative: [],
+    settings: [],
+  };
+
+  let activeSection: SectionKey | null = null;
+
+  const lines = text.replace(/\r/g, "").split("\n");
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      if (activeSection) {
+        sections[activeSection].push("");
+      }
+      continue;
+    }
+
+    const headingMatch = line.match(/^(.*?)(?:\s*:)?\s*(.*)$/);
+    if (headingMatch) {
+      const potentialHeading = headingMatch[1].trim().toLowerCase();
+      const remainder = headingMatch[2]?.trim() ?? "";
+      const mapped = sectionHeadingMap[potentialHeading];
+      if (mapped) {
+        activeSection = mapped;
+        if (remainder.length > 0) {
+          sections[mapped].push(remainder);
+        }
+        continue;
+      }
+    }
+
+    const exactHeading = line.trim().toLowerCase();
+    if (sectionHeadingMap[exactHeading]) {
+      activeSection = sectionHeadingMap[exactHeading];
+      continue;
+    }
+
+    if (activeSection) {
+      sections[activeSection].push(line.trim());
+    }
+  }
+
+  const normalize = (values: string[]) =>
+    values
+      .join("\n")
+      .split(/\n{2,}/)
+      .map((chunk) => chunk.trim())
+      .filter((chunk) => chunk.length > 0)
+      .join("\n\n");
+
+  const positivePrompt = normalize(sections.positive);
+  const negativePrompt = normalize(sections.negative);
+  const suggestedSettings = normalize(sections.settings);
+
+  const fallbackPositive = positivePrompt || text.trim();
+
+  return {
+    positivePrompt: fallbackPositive,
+    negativePrompt,
+    suggestedSettings,
+    raw: text.trim(),
+    visionSeed,
+  };
+}
