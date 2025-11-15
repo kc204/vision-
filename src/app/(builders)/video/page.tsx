@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
@@ -43,6 +43,64 @@ const styleOptions: VideoPlanPayload["visual_style"][] = [
 
 const aspectRatios: VideoPlanPayload["aspect_ratio"][] = ["16:9", "9:16"];
 
+const SAMPLE_VIDEO_PLAN: {
+  vision_seed_text: string;
+  script_text: string;
+  tone: VideoPlanPayload["tone"];
+  visual_style: VideoPlanPayload["visual_style"];
+  aspect_ratio: VideoPlanPayload["aspect_ratio"];
+  mood_profile: string;
+  api_key: string;
+  cinematic_control_options: {
+    cameraAngles: string[];
+    shotSizes: string[];
+    cameraMovement: string[];
+    lightingStyles: string[];
+    composition: string[];
+    colorPalettes: string[];
+    atmosphere: string[];
+  };
+} = {
+  vision_seed_text:
+    "Neon-drenched, rain-soaked city rooftops where a lone skater threads between holographic billboards, synthwave pulses, and misty skyline vistas.",
+  script_text:
+    "Tonight we chase the storm, ride the hum of midnight rails, and spark a revolution beneath the violet glow of the megacity.",
+  tone: "hype",
+  visual_style: "stylized",
+  aspect_ratio: "9:16",
+  mood_profile:
+    "Keep the rebellious optimism, glistening reflections, and glitch-chic overlays consistent across every sequence.",
+  api_key: "sk-demo-vision-seed-1234",
+  cinematic_control_options: {
+    cameraAngles: ["low_angle"],
+    shotSizes: ["medium"],
+    cameraMovement: ["steady_push"],
+    lightingStyles: ["split"],
+    composition: ["leading_lines"],
+    colorPalettes: ["vaporwave"],
+    atmosphere: ["urban_noir_rain"],
+  },
+};
+
+const INITIAL_FORM_STATE = {
+  vision_seed_text: "",
+  script_text: "",
+  tone: "informative" as VideoPlanPayload["tone"],
+  visual_style: "realistic" as VideoPlanPayload["visual_style"],
+  aspect_ratio: "16:9" as VideoPlanPayload["aspect_ratio"],
+  mood_profile: "",
+  api_key: "",
+  cinematic_control_options: {
+    cameraAngles: [] as string[],
+    shotSizes: [] as string[],
+    cameraMovement: [] as string[],
+    lightingStyles: [] as string[],
+    composition: [] as string[],
+    colorPalettes: [] as string[],
+    atmosphere: [] as string[],
+  },
+};
+
 type VideoPlanResult = VideoPlanResponse;
 
 type SceneCardProps = {
@@ -51,26 +109,88 @@ type SceneCardProps = {
 };
 
 export default function VideoBuilderPage() {
-  const [visionSeedText, setVisionSeedText] = useState("");
-  const [scriptText, setScriptText] = useState("");
-  const [tone, setTone] = useState<VideoPlanPayload["tone"]>("informative");
-  const [visualStyle, setVisualStyle] = useState<VideoPlanPayload["visual_style"]>("realistic");
-  const [aspectRatio, setAspectRatio] = useState<VideoPlanPayload["aspect_ratio"]>("16:9");
-  const [cameraAngleSelection, setCameraAngleSelection] = useState<string[]>([]);
-  const [shotSizeSelection, setShotSizeSelection] = useState<string[]>([]);
-  const [cameraMovementSelection, setCameraMovementSelection] = useState<string[]>([]);
-  const [lightingSelection, setLightingSelection] = useState<string[]>([]);
-  const [compositionSelection, setCompositionSelection] = useState<string[]>([]);
-  const [colorPaletteSelection, setColorPaletteSelection] = useState<string[]>([]);
-  const [atmosphereSelection, setAtmosphereSelection] = useState<string[]>([]);
-  const [moodProfile, setMoodProfile] = useState("");
+  const [visionSeedText, setVisionSeedText] = useState(
+    INITIAL_FORM_STATE.vision_seed_text
+  );
+  const [scriptText, setScriptText] = useState(INITIAL_FORM_STATE.script_text);
+  const [tone, setTone] = useState<VideoPlanPayload["tone"]>(
+    INITIAL_FORM_STATE.tone
+  );
+  const [visualStyle, setVisualStyle] = useState<VideoPlanPayload["visual_style"]>(
+    INITIAL_FORM_STATE.visual_style
+  );
+  const [aspectRatio, setAspectRatio] = useState<VideoPlanPayload["aspect_ratio"]>(
+    INITIAL_FORM_STATE.aspect_ratio
+  );
+  const [cameraAngleSelection, setCameraAngleSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.cameraAngles
+  );
+  const [shotSizeSelection, setShotSizeSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.shotSizes
+  );
+  const [cameraMovementSelection, setCameraMovementSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.cameraMovement
+  );
+  const [lightingSelection, setLightingSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.lightingStyles
+  );
+  const [compositionSelection, setCompositionSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.composition
+  );
+  const [colorPaletteSelection, setColorPaletteSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.colorPalettes
+  );
+  const [atmosphereSelection, setAtmosphereSelection] = useState<string[]>(
+    INITIAL_FORM_STATE.cinematic_control_options.atmosphere
+  );
+  const [moodProfile, setMoodProfile] = useState(INITIAL_FORM_STATE.mood_profile);
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoPlanResult | null>(null);
   const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(INITIAL_FORM_STATE.api_key);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
+  const [useSamplePlan, setUseSamplePlan] = useState(false);
+
+  useEffect(() => {
+    const activePlan = useSamplePlan ? SAMPLE_VIDEO_PLAN : INITIAL_FORM_STATE;
+
+    setVisionSeedText(activePlan.vision_seed_text);
+    setScriptText(activePlan.script_text);
+    setTone(activePlan.tone);
+    setVisualStyle(activePlan.visual_style);
+    setAspectRatio(activePlan.aspect_ratio);
+    setMoodProfile(activePlan.mood_profile);
+    setApiKey(activePlan.api_key);
+    setCameraAngleSelection([
+      ...activePlan.cinematic_control_options.cameraAngles,
+    ]);
+    setShotSizeSelection([
+      ...activePlan.cinematic_control_options.shotSizes,
+    ]);
+    setCameraMovementSelection([
+      ...activePlan.cinematic_control_options.cameraMovement,
+    ]);
+    setLightingSelection([
+      ...activePlan.cinematic_control_options.lightingStyles,
+    ]);
+    setCompositionSelection([
+      ...activePlan.cinematic_control_options.composition,
+    ]);
+    setColorPaletteSelection([
+      ...activePlan.cinematic_control_options.colorPalettes,
+    ]);
+    setAtmosphereSelection([
+      ...activePlan.cinematic_control_options.atmosphere,
+    ]);
+
+    setFiles([]);
+    setResult(null);
+    setMediaAssets([]);
+    setRawPlanText(null);
+    setError(null);
+  }, [useSamplePlan]);
 
   const cinematicControlGroups: Array<{
     label: string;
@@ -266,16 +386,27 @@ export default function VideoBuilderPage() {
         onSubmit={handleSubmit}
         className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
-        <header className="space-y-3">
-          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
-            YouTube Cinematic Director
-          </p>
-          <h1 className="text-3xl font-semibold text-white">
-            Turn your script into a Veo-ready plan
-          </h1>
-          <p className="text-sm text-slate-300">
-            Paste your narration, set the tone, and the Director Core will deliver a scene-by-scene plan with continuity locks and thumbnail guidance.
-          </p>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+              YouTube Cinematic Director
+            </p>
+            <h1 className="text-3xl font-semibold text-white">
+              Turn your script into a Veo-ready plan
+            </h1>
+            <p className="text-sm text-slate-300">
+              Paste your narration, set the tone, and the Director Core will deliver a scene-by-scene plan with continuity locks and thumbnail guidance.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <input
+              type="checkbox"
+              checked={useSamplePlan}
+              onChange={(event) => setUseSamplePlan(event.target.checked)}
+              className="h-4 w-4 rounded border border-white/20 bg-slate-900/70 text-canvas-accent focus:ring-canvas-accent"
+            />
+            Use sample data
+          </label>
         </header>
 
         <label className="block space-y-2">
