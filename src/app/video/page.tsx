@@ -208,6 +208,24 @@ export default function VideoPlanBuilderPage() {
     };
 
     try {
+      const payload: VideoPlanDirectorRequest = {
+        mode: "video_plan",
+        visionSeed: {
+          scriptText: formValues.scriptText,
+          tone: formValues.tone,
+          palette: formValues.palette,
+          references: parseReferences(formValues.references),
+          aspectRatio: formValues.aspectRatio,
+        },
+        segmentation: collectResult.segmentation,
+        sceneAnswers: collectResult.segmentation.map((scene) => ({
+          sceneId: scene.id,
+          answer: sceneAnswers[scene.id] ?? "",
+        })),
+        directRender: true,
+        finalPlanOverride: plan,
+      };
+
       const response = await fetch("/api/director", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
