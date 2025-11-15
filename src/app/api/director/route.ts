@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-type ContinuityLock = {
+type ContinuityLocks = {
   subject_identity: string;
   lighting_and_palette: string;
   camera_grammar: string;
@@ -21,20 +21,25 @@ type LoopCycleJSON = {
   title?: string;
   beat_summary?: string;
   prompt: string;
-  start_frame: number;
+  start_frame_description: string;
   loop_length: number;
-  continuity_lock: ContinuityLock;
+  continuity_locks: ContinuityLocks;
   keyframes?: LoopKeyframe[];
   mood_profile?: string;
+  acceptance_checks?: string[];
+};
+
+type LoopDirectorPayload = {
+  vision_seed_text: string;
+  start_frame_description: string;
+  loop_length: number;
+  include_mood_profile?: boolean;
+  reference_images?: string[];
 };
 
 type LoopDirectorRequest = {
   mode: "loop_sequence";
-  visionSeed: string;
-  startFrame?: number;
-  loopLength?: number;
-  includeMoodProfile?: boolean;
-  referenceImage?: string | null;
+  payload?: LoopDirectorPayload;
 };
 
 type DirectorErrorResponse = {
@@ -66,25 +71,30 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!body.visionSeed || !body.visionSeed.trim()) {
+    if (!body.payload?.vision_seed_text?.trim()) {
       return NextResponse.json<DirectorErrorResponse>(
-        { error: "visionSeed is required" },
+        { error: "vision_seed_text is required" },
         { status: 400 }
       );
     }
 
-    const startFrame = Number.isFinite(body.startFrame)
-      ? Number(body.startFrame)
-      : 0;
-    const loopLength = Number.isFinite(body.loopLength)
-      ? Math.max(1, Number(body.loopLength))
+    if (!body.payload.start_frame_description?.trim()) {
+      return NextResponse.json<DirectorErrorResponse>(
+        { error: "start_frame_description is required" },
+        { status: 400 }
+      );
+    }
+
+    const loopLength = Number.isFinite(body.payload.loop_length)
+      ? Math.max(1, Number(body.payload.loop_length))
       : 48;
 
-    const includeMoodProfile = Boolean(body.includeMoodProfile);
+    const includeMoodProfile = Boolean(body.payload.include_mood_profile);
 
-    const referenceHint = body.referenceImage
-      ? "The user also supplied a base64-encoded reference image. Use it to inform continuity notes and tone, but do not echo the raw string."
-      : "No reference image was provided.";
+    const referenceCount = body.payload.reference_images?.length ?? 0;
+    const referenceHint = referenceCount
+      ? `The user supplied ${referenceCount} base64-encoded reference image${referenceCount === 1 ? "" : "s"}. Use them to inform continuity notes and tone, but do not echo the raw strings.`
+      : "No reference images were provided.";
 
     const moodProfileDirective = includeMoodProfile
       ? "If helpful, summarize a short mood profile that can be reused when refining the loop later."
@@ -94,9 +104,11 @@ export async function POST(request: Request) {
 
     const userPrompt = `MODE: loop_sequence
 VISION SEED:
-${body.visionSeed.trim()}
+${body.payload.vision_seed_text.trim()}
 
-START FRAME: ${startFrame}
+START FRAME DESCRIPTION:
+${body.payload.start_frame_description.trim()}
+
 LOOP LENGTH: ${loopLength} frames
 ${referenceHint}
 ${moodProfileDirective}
@@ -104,9 +116,10 @@ ${moodProfileDirective}
 Design 2-4 cohesive loop cycles that explore the idea while keeping the loop seamless.
 Each cycle should:
 - Provide a descriptive prompt capturing the visual moment.
-- Lock key continuity details (subjects, lighting/palette, camera grammar, environment motif).
+- Lock key continuity details (subjects, lighting/palette, camera grammar, environment motif) inside a continuity_locks object.
 - Outline 3-5 keyframes describing how motion evolves between the start frame and the loop reset.
-- Mention whether a mood profile should be remembered when includeMoodProfile is true.
+- Mention whether a mood profile should be remembered when include_mood_profile is true.
+- Provide 2-3 acceptance_checks that can be verified during production.
 
 Return a JSON array of cycles using this schema:
 [
@@ -115,9 +128,9 @@ Return a JSON array of cycles using this schema:
     "title": "Optional short title",
     "beat_summary": "One-sentence summary of the loop",
     "prompt": "Primary generation prompt",
-    "start_frame": ${startFrame},
+    "start_frame_description": "${body.payload.start_frame_description.trim().replace(/"/g, '\\"')}",
     "loop_length": ${loopLength},
-    "continuity_lock": {
+    "continuity_locks": {
       "subject_identity": "...",
       "lighting_and_palette": "...",
       "camera_grammar": "...",
@@ -125,14 +138,15 @@ Return a JSON array of cycles using this schema:
     },
     "keyframes": [
       {
-        "frame": ${startFrame},
+        "frame": 0,
         "description": "Describe the visual moment",
         "camera": "Optional camera note",
         "motion": "Optional motion note",
         "lighting": "Optional lighting note"
       }
     ],
-    "mood_profile": "Only when includeMoodProfile is true"
+    "mood_profile": "Only when include_mood_profile is true",
+    "acceptance_checks": ["Shot stays seamless at the reset", "Color temperature matches the mood"]
   }
 ]`;
 
@@ -154,10 +168,10 @@ Return a JSON array of cycles using this schema:
       );
     }
 
-    const parsed = tryParseLoopCycles(content);
+    const parsed = JSON.parse(content.trim()) as unknown;
 
-    if (!parsed) {
-      console.error("Failed to parse loop sequence response", content);
+    if (!Array.isArray(parsed)) {
+      console.error("Loop sequence response was not an array", parsed);
       return NextResponse.json<DirectorErrorResponse>(
         { error: "Failed to generate loop sequence" },
         { status: 500 }
@@ -172,39 +186,4 @@ Return a JSON array of cycles using this schema:
       { status: 500 }
     );
   }
-}
-
-function tryParseLoopCycles(content: string): LoopCycleJSON[] | null {
-  const sanitized = content.trim();
-
-  const jsonCandidates: string[] = [];
-  if (sanitized.startsWith("{")) {
-    jsonCandidates.push(sanitized);
-  }
-
-  const fencedMatch = sanitized.match(/```json([\s\S]*?)```/i);
-  if (fencedMatch) {
-    jsonCandidates.push(fencedMatch[1].trim());
-  }
-
-  const arrayMatch = sanitized.match(/\[[\s\S]*\]/);
-  if (arrayMatch) {
-    jsonCandidates.push(arrayMatch[0]);
-  }
-
-  for (const candidate of jsonCandidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (Array.isArray(parsed)) {
-        return parsed as LoopCycleJSON[];
-      }
-      if (Array.isArray((parsed as { cycles?: unknown }).cycles)) {
-        return (parsed as { cycles: LoopCycleJSON[] }).cycles;
-      }
-    } catch (error) {
-      console.warn("Failed to parse candidate", error);
-    }
-  }
-
-  return null;
 }
