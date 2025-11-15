@@ -237,6 +237,13 @@ function parseLoopSequencePayload(value: unknown): ValidationResult {
     start_frame_description,
     loop_length = null,
     mood_profile = null,
+    cameraAngles: cameraAnglesRaw,
+    shotSizes: shotSizesRaw,
+    composition: compositionRaw,
+    cameraMovement: cameraMovementRaw,
+    lightingStyles: lightingStylesRaw,
+    colorPalettes: colorPalettesRaw,
+    atmosphere: atmosphereRaw,
   } = value as UnknownRecord;
 
   if (!isNonEmptyString(vision_seed_text)) {
@@ -261,6 +268,41 @@ function parseLoopSequencePayload(value: unknown): ValidationResult {
     loop_length: parsedLoopLength,
     mood_profile: parseNullableString(mood_profile),
   };
+
+  const cameraAngles = parseOptionalStringArray(cameraAnglesRaw);
+  if (cameraAngles && cameraAngles.length > 0) {
+    payload.cameraAngles = cameraAngles;
+  }
+
+  const shotSizes = parseOptionalStringArray(shotSizesRaw);
+  if (shotSizes && shotSizes.length > 0) {
+    payload.shotSizes = shotSizes;
+  }
+
+  const composition = parseOptionalStringArray(compositionRaw);
+  if (composition && composition.length > 0) {
+    payload.composition = composition;
+  }
+
+  const cameraMovement = parseOptionalStringArray(cameraMovementRaw);
+  if (cameraMovement && cameraMovement.length > 0) {
+    payload.cameraMovement = cameraMovement;
+  }
+
+  const lightingStyles = parseOptionalStringArray(lightingStylesRaw);
+  if (lightingStyles && lightingStyles.length > 0) {
+    payload.lightingStyles = lightingStyles;
+  }
+
+  const colorPalettes = parseOptionalStringArray(colorPalettesRaw);
+  if (colorPalettes && colorPalettes.length > 0) {
+    payload.colorPalettes = colorPalettes;
+  }
+
+  const atmosphere = parseOptionalStringArray(atmosphereRaw);
+  if (atmosphere && atmosphere.length > 0) {
+    payload.atmosphere = atmosphere;
+  }
 
   return { ok: true, value: payload };
 }

@@ -263,7 +263,14 @@ INPUT SHAPE:
   "vision_seed_text": string,
   "start_frame_description": string,
   "loop_length": number | null,
-  "mood_profile": string | null
+  "mood_profile": string | null,
+  "cameraAngles"?: string[],
+  "shotSizes"?: string[],
+  "composition"?: string[],
+  "cameraMovement"?: string[],
+  "lightingStyles"?: string[],
+  "colorPalettes"?: string[],
+  "atmosphere"?: string[]
 }
 Plus optional start images.
 
