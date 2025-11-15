@@ -4,12 +4,12 @@ export default function HomePage() {
   return (
     <section className="space-y-12">
       <div className="rounded-3xl border border-white/10 bg-white/5 p-8 shadow-xl backdrop-blur">
-        <p className="text-sm uppercase tracking-[0.3em] text-canvas-accent">Visionary Canvas</p>
+        <p className="text-sm uppercase tracking-[0.3em] text-canvas-accent">Vision Architect Studio</p>
         <h1 className="mt-4 text-4xl font-bold text-white sm:text-5xl">
-          Describe it like a human. Get prompts like a director.
+          One Director Core for every cinematic imagination.
         </h1>
         <p className="mt-4 max-w-2xl text-lg text-slate-300">
-          Visionary Canvas turns everyday language into professional-grade image prompts and cinematic video scene plans. No film school vocabulary required—the models do the heavy lifting for you.
+          Feed your ideas into the Director Core and receive production-ready image prompts, scene-by-scene video plans, and infinite loop concepts—no film school vocabulary required.
         </p>
         <div className="mt-8 flex flex-col gap-4 sm:flex-row">
           <Link
@@ -24,19 +24,31 @@ export default function HomePage() {
           >
             Launch YouTube Cinematic Director
           </Link>
+          <Link
+            href="/loop"
+            className="inline-flex items-center justify-center rounded-lg border border-white/20 px-6 py-3 text-sm font-semibold text-white hover:border-white/40"
+          >
+            Launch Infinite Cinematic Loop Creator
+          </Link>
         </div>
       </div>
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 className="text-xl font-semibold text-white">Vision Architect</h2>
           <p className="mt-2 text-sm text-slate-300">
-            Craft polished ComfyUI and SDXL prompts from simple language. Dial in camera angles, lighting, and color palettes with guided dropdowns.
+            Combine detailed Vision Seeds with cinematic dropdowns to generate SDXL, Flux, or Illustrious-ready prompts.
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 className="text-xl font-semibold text-white">YouTube Cinematic Director</h2>
           <p className="mt-2 text-sm text-slate-300">
-            Turn any script into a scene-by-scene plan with thumbnail ideas, camera movement, sound suggestions, and continuity notes.
+            Turn a script into Veo-ready scene JSON with continuity locks, pacing notes, and a standout thumbnail concept.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <h2 className="text-xl font-semibold text-white">Infinite Loop Creator</h2>
+          <p className="mt-2 text-sm text-slate-300">
+            Forecast future frames with predictive loop cycles that preserve mood, palette, and narrative identity.
           </p>
         </div>
       </div>

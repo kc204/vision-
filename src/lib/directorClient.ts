@@ -1,20 +1,21 @@
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
-import { DirectorRequest } from "./directorTypes";
+import type { DirectorRequest } from "./directorTypes";
 
-/**
- * Placeholder Gemini client for the Director Core orchestration model.
- *
- * Once Gemini integration is wired up, this helper should:
- * 1. Instantiate a GenerativeModel client that targets the Director Core model.
- * 2. Send the DIRECTOR_CORE_SYSTEM_PROMPT as the system instruction and the
- *    serialized {@link DirectorRequest} as the user content.
- * 3. Return the model text output.
- *
- * Until that work is completed we throw so callers know the backend still needs
- * to be connected to the new service layer.
- */
-export async function callDirectorCore(_request: DirectorRequest): Promise<string> {
+// TODO: Replace this placeholder implementation with Gemini API calls.
+// When wiring up Gemini, use the official `@google/generative-ai` client and send the
+// DIRECTOR_CORE_SYSTEM_PROMPT as the system message alongside the serialized DirectorRequest.
+// Example sketch:
+// const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// const model = client.getGenerativeModel({ model: "gemini-1.5-pro" });
+// const result = await model.generateContent([
+//   { role: "user", parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }] },
+//   { role: "user", parts: [{ text: JSON.stringify(req) }] }
+// ]);
+// return result.response.text();
+
+export async function callDirectorCore(_req: DirectorRequest): Promise<string> {
   void DIRECTOR_CORE_SYSTEM_PROMPT;
-  // TODO: Integrate Gemini client and return the generated text response.
-  throw new Error("Director Core integration not yet implemented");
+  throw new Error(
+    "callDirectorCore is not yet implemented with Gemini. Wire this to Gemini text models."
+  );
 }

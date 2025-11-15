@@ -3,9 +3,9 @@ import "./globals.css";
 import { LayoutShell } from "@/components/LayoutShell";
 
 export const metadata: Metadata = {
-  title: "Visionary Canvas",
+  title: "Vision Architect Studio",
   description:
-    "Describe it like a human. Get prompts like a director. Visionary Canvas turns casual language into cinematic image prompts and video plans.",
+    "Craft cinematic image prompts, Veo-ready video plans, and predictive loop sequences with a unified Director Core.",
 };
 
 export default function RootLayout({
