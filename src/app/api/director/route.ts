@@ -168,7 +168,49 @@ Return a JSON array of cycles using this schema:
       );
     }
 
-    const parsed = JSON.parse(content.trim()) as unknown;
+    const attempts: string[] = [];
+    const trimmedContent = content.trim();
+    attempts.push(trimmedContent);
+
+    const fencedMatch = trimmedContent.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch?.[1]) {
+      attempts.push(fencedMatch[1].trim());
+    }
+
+    const firstBrace = trimmedContent.indexOf("{");
+    const firstBracket = trimmedContent.indexOf("[");
+    const candidateStarts = [firstBrace, firstBracket].filter((index) => index >= 0);
+    if (candidateStarts.length) {
+      const start = Math.min(...candidateStarts);
+      const lastBrace = trimmedContent.lastIndexOf("}");
+      const lastBracket = trimmedContent.lastIndexOf("]");
+      const candidateEnds = [lastBrace, lastBracket].filter((index) => index >= 0);
+      if (candidateEnds.length) {
+        const end = Math.max(...candidateEnds);
+        attempts.push(trimmedContent.slice(start, end + 1).trim());
+      }
+    }
+
+    let parsed: unknown = null;
+
+    for (const attempt of attempts) {
+      try {
+        parsed = JSON.parse(attempt);
+        break;
+      } catch (error) {
+        console.warn("Failed to parse loop sequence attempt", { error, attempt });
+      }
+    }
+
+    if (!parsed) {
+      console.error("Loop sequence response could not be parsed", {
+        attemptsCount: attempts.length,
+      });
+      return NextResponse.json<DirectorErrorResponse>(
+        { error: "Failed to generate loop sequence" },
+        { status: 500 }
+      );
+    }
 
     if (!Array.isArray(parsed)) {
       console.error("Loop sequence response was not an array", parsed);
