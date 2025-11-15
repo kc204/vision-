@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { CopyButton } from "@/components/copy-button";
+import { ImageDropzone } from "@/components/ImageDropzone";
+import { PromptOutput } from "@/components/PromptOutput";
+import { Tooltip } from "@/components/Tooltip";
 import {
   cameraAngles,
   shotSizes,
@@ -42,6 +44,7 @@ export default function ImagePromptBuilderPage() {
   const [colorPaletteId, setColorPaletteId] = useState<string>("");
   const [motionCueIds, setMotionCueIds] = useState<string[]>([]);
   const [stylePackIds, setStylePackIds] = useState<string[]>([]);
+  const [visionSeedImages, setVisionSeedImages] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImagePromptResponse | null>(null);
@@ -113,6 +116,14 @@ export default function ImagePromptBuilderPage() {
             rows={6}
             className="mt-4 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
             placeholder="A kid astronaut discovering a glowing forest on an alien planet"
+          />
+          <ImageDropzone
+            files={visionSeedImages}
+            onFilesChange={setVisionSeedImages}
+            label="Vision Seed reference images (optional)"
+            description="Drop PNG, JPG, or WEBP frames to give Director Core visual grounding."
+            maxFiles={6}
+            className="mt-4"
           />
         </div>
 
@@ -222,20 +233,25 @@ export default function ImagePromptBuilderPage() {
 
         {result && (
           <div className="space-y-6">
-            <ResultCard title="Summary" description={result.summary} />
-            <ResultCard
-              title="Positive prompt"
-              description={result.positivePrompt}
-              withCopy
+            <PromptOutput label="Summary" value={result.summary} />
+            <PromptOutput
+              label="Positive prompt"
+              value={result.positivePrompt}
+              isCode
               copyLabel="Copy positive prompt"
             />
-            <ResultCard
-              title="Negative prompt"
-              description={result.negativePrompt}
-              withCopy
+            <PromptOutput
+              label="Negative prompt"
+              value={result.negativePrompt}
+              isCode
               copyLabel="Copy negative prompt"
             />
-            <SettingsCard settings={result.settings} />
+            <PromptOutput
+              label="Suggested settings"
+              value={JSON.stringify(result.settings ?? {}, null, 2)}
+              isCode
+              copyLabel="Copy settings JSON"
+            />
           </div>
         )}
 
@@ -358,15 +374,16 @@ function VisualOptionBrowser({
           <ul className="flex flex-wrap gap-2">
             {selectedOptions.map((option) => (
               <li key={option.id}>
-                <button
-                  type="button"
-                  onClick={() => toggleOption(option)}
-                  className="inline-flex items-center gap-2 rounded-full border border-canvas-accent/40 bg-canvas-accent/10 px-3 py-1 text-xs font-semibold text-canvas-accent transition hover:border-canvas-accent hover:bg-canvas-accent/20"
-                  title={`${option.label}: ${option.tooltip}`}
-                >
-                  {option.label}
-                  <span aria-hidden="true">×</span>
-                </button>
+                <Tooltip content={option.tooltip}>
+                  <button
+                    type="button"
+                    onClick={() => toggleOption(option)}
+                    className="inline-flex items-center gap-2 rounded-full border border-canvas-accent/40 bg-canvas-accent/10 px-3 py-1 text-xs font-semibold text-canvas-accent transition hover:border-canvas-accent hover:bg-canvas-accent/20"
+                  >
+                    {option.label}
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </Tooltip>
               </li>
             ))}
           </ul>
@@ -416,22 +433,22 @@ function VisualOptionBrowser({
                       {group.options.map((option) => {
                         const isSelected = selectedIds.includes(option.id);
                         return (
-                          <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => toggleOption(option)}
-                            className={`rounded-xl border px-3 py-2 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-canvas-accent ${
-                              isSelected
-                                ? "border-canvas-accent bg-canvas-accent/20 text-white"
-                                : "border-white/10 bg-slate-950/60 text-slate-100 hover:border-white/20 hover:bg-slate-900"
-                            }`}
-                            title={option.tooltip}
-                          >
-                            <span className="font-semibold">{option.label}</span>
-                            <span className="mt-1 block text-xs text-slate-300">
-                              {option.tooltip}
-                            </span>
-                          </button>
+                          <Tooltip key={option.id} content={option.tooltip}>
+                            <button
+                              type="button"
+                              onClick={() => toggleOption(option)}
+                              className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-canvas-accent ${
+                                isSelected
+                                  ? "border-canvas-accent bg-canvas-accent/20 text-white"
+                                  : "border-white/10 bg-slate-950/60 text-slate-100 hover:border-white/20 hover:bg-slate-900"
+                              }`}
+                            >
+                              <span className="font-semibold">{option.label}</span>
+                              <span className="mt-1 block text-xs text-slate-300">
+                                {option.tooltip}
+                              </span>
+                            </button>
+                          </Tooltip>
                         );
                       })}
                     </div>
@@ -446,90 +463,3 @@ function VisualOptionBrowser({
   );
 }
 
-type ResultCardProps = {
-  title: string;
-  description: string;
-  withCopy?: boolean;
-  copyLabel?: string;
-};
-
-function ResultCard({ title, description, withCopy, copyLabel }: ResultCardProps) {
-  return (
-    <article className="rounded-2xl border border-white/10 bg-white/5 p-5">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-          {title}
-        </h2>
-        {withCopy && copyLabel ? (
-          <CopyButton text={description} label={copyLabel} />
-        ) : null}
-      </header>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-100">
-        {description}
-      </p>
-    </article>
-  );
-}
-
-type SettingsCardProps = {
-  settings: ImagePromptResponse["settings"];
-};
-
-function SettingsCard({ settings }: SettingsCardProps) {
-  const settingsText = JSON.stringify(settings, null, 2);
-  const entries = Object.entries(settings ?? {});
-  return (
-    <article className="rounded-2xl border border-white/10 bg-white/5 p-5">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-          Suggested settings
-        </h2>
-        <CopyButton text={settingsText} label="Copy settings" />
-      </header>
-      {entries.length > 0 ? (
-        <dl className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-200 sm:grid-cols-2">
-          {entries.map(([label, value]) => (
-            <Setting
-              key={label}
-              label={formatSettingLabel(label)}
-              value={String(value)}
-            />
-          ))}
-        </dl>
-      ) : (
-        <p className="mt-3 text-sm text-slate-300">No settings provided.</p>
-      )}
-    </article>
-  );
-}
-
-type SettingProps = {
-  label: string;
-  value: string;
-};
-
-function Setting({ label, value }: SettingProps) {
-  return (
-    <div className="rounded-xl border border-white/5 bg-slate-950/40 p-3">
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-1 font-medium text-white">{value}</dd>
-    </div>
-  );
-}
-
-function formatSettingLabel(label: string): string {
-  const cleaned = label.replace(/[_-]+/g, " ").trim();
-  if (!cleaned) {
-    return label;
-  }
-
-  const words = cleaned.split(/\s+/);
-  return words
-    .map((word) => {
-      if (word.length <= 3) {
-        return word.toUpperCase();
-      }
-      return word.charAt(0).toUpperCase() + word.slice(1);
-    })
-    .join(" ");
-}
