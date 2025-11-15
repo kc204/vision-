@@ -7,6 +7,7 @@ import type {
   VideoPlanPayload,
   LoopSequencePayload,
   DirectorCoreResult,
+  DirectorCoreSuccess,
 } from "@/lib/directorTypes";
 
 type UnknownRecord = Record<string, unknown>;
@@ -467,4 +468,112 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseEnvBoolean(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractApiKeyFromHeaders(headers: Headers): string | undefined {
+  const headerValue = headers.get(DIRECTOR_API_KEY_HEADER);
+  return getNonEmptyString(headerValue ?? undefined);
+}
+
+function resolveStatusFromCode(code: string | undefined): number | undefined {
+  if (!code) {
+    return undefined;
+  }
+
+  const normalized = code.trim().toUpperCase();
+  const map: Record<string, number> = {
+    INVALID_ARGUMENT: 400,
+    UNAUTHENTICATED: 401,
+    UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
+    NOT_FOUND: 404,
+    ALREADY_EXISTS: 409,
+    FAILED_PRECONDITION: 412,
+    ABORTED: 409,
+    RESOURCE_EXHAUSTED: 429,
+    CANCELLED: 499,
+    DATA_LOSS: 500,
+    INTERNAL: 500,
+    UNKNOWN: 500,
+    UNIMPLEMENTED: 501,
+    UNAVAILABLE: 503,
+    DEADLINE_EXCEEDED: 504,
+  };
+
+  return map[normalized];
+}
+
+function sanitizeErrorDetails(details: unknown): unknown {
+  if (details === undefined || details === null) {
+    return details;
+  }
+
+  if (
+    typeof details === "string" ||
+    typeof details === "number" ||
+    typeof details === "boolean"
+  ) {
+    return details;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(details));
+  } catch (error) {
+    console.warn("Failed to sanitize error details", error);
+    return undefined;
+  }
+}
+
+function formatSuccessPayload(result: DirectorCoreSuccess): UnknownRecord {
+  switch (result.mode) {
+    case "image_prompt":
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        images: sanitizeErrorDetails(result.images) ?? [],
+        promptText: result.promptText ?? null,
+        metadata: sanitizeErrorDetails(result.metadata) ?? null,
+      };
+    case "video_plan":
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        videos: sanitizeErrorDetails(result.videos) ?? [],
+        storyboard: sanitizeErrorDetails(result.storyboard) ?? null,
+        metadata: sanitizeErrorDetails(result.metadata) ?? null,
+      };
+    case "loop_sequence":
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        loop: sanitizeErrorDetails(result.loop) ?? null,
+      };
+    default:
+      return { success: true, mode: result.mode };
+  }
 }
