@@ -3,9 +3,15 @@
 import { useMemo, useState } from "react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
+import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-import type { DirectorRequest, ImagePromptPayload } from "@/lib/directorTypes";
+import type {
+  DirectorMediaAsset,
+  DirectorRequest,
+  DirectorResponse,
+  ImagePromptPayload,
+} from "@/lib/directorTypes";
 import { encodeFiles } from "@/lib/encodeFiles";
 import {
   atmosphere,
@@ -29,6 +35,12 @@ type PromptSections = {
   positive: string;
   negative: string;
   settings: string;
+};
+
+type ImageGenerationResult = {
+  sections: PromptSections | null;
+  fallbackText: string | null;
+  media: DirectorMediaAsset[];
 };
 
 const optionGroups: Array<{
@@ -84,7 +96,8 @@ export default function ImageBuilderPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<PromptSections | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [result, setResult] = useState<ImageGenerationResult | null>(null);
 
   const manualVisionSeedText = useMemo(() => {
     const sections = [
@@ -160,21 +173,58 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      const trimmedKey = apiKey.trim();
+      if (trimmedKey.length) {
+        headers["x-provider-api-key"] = trimmedKey;
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
+      const responseJson = (await response.json().catch(() => null)) as
+        | (DirectorResponse<string> & {
+            promptSections?: PromptSections;
+            sections?: PromptSections;
+          })
+        | null;
+
       if (!response.ok) {
-        const message = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(message?.error ?? "Failed to generate prompt");
+        const message = (responseJson as { error?: string } | null)?.error;
+        throw new Error(message ?? "Failed to generate prompt");
       }
 
-      const { text } = (await response.json()) as { text: string };
-      setResult(parsePromptSections(text));
+      if (!responseJson) {
+        throw new Error("Empty response from director");
+      }
+
+      const rawText =
+        responseJson.text ??
+        (typeof responseJson.result === "string"
+          ? responseJson.result
+          : null) ??
+        responseJson.fallbackText ??
+        null;
+
+      let promptSections: PromptSections | null =
+        responseJson.promptSections ?? responseJson.sections ?? null;
+
+      if (!promptSections) {
+        if (isPromptSections(responseJson.result)) {
+          promptSections = responseJson.result;
+        } else if (rawText) {
+          promptSections = parsePromptSections(rawText);
+        }
+      }
+
+      setResult({
+        sections: promptSections,
+        fallbackText: rawText,
+        media: responseJson.media ?? [],
+      });
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -333,6 +383,26 @@ export default function ImageBuilderPage() {
           </div>
         </div>
 
+        <div className="space-y-2">
+          <label className="block space-y-1">
+            <span className="text-sm font-semibold text-slate-200">
+              Provider API key (optional)
+            </span>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Gemini, OpenAI, etc."
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
+          </label>
+          <p className="text-xs text-slate-400">
+            Stored only in this session and forwarded with your generation request.
+          </p>
+        </div>
+
         <button
           type="submit"
           disabled={!canSubmit}
@@ -354,24 +424,36 @@ export default function ImageBuilderPage() {
           </div>
         ) : null}
 
-        {result ? (
+        {result?.media.length ? (
+          <GeneratedMediaGallery assets={result.media} />
+        ) : null}
+
+        {result?.sections ? (
           <div className="space-y-4">
             <PromptOutput
               label="Positive prompt"
-              value={result.positive}
+              value={result.sections.positive}
               copyLabel="Copy positive"
             />
             <PromptOutput
               label="Negative prompt"
-              value={result.negative}
+              value={result.sections.negative}
               copyLabel="Copy negative"
             />
             <PromptOutput
               label="Suggested settings"
-              value={result.settings}
+              value={result.sections.settings}
               copyLabel="Copy settings"
             />
           </div>
+        ) : null}
+
+        {!result?.sections && result?.fallbackText ? (
+          <PromptOutput
+            label="Generation response"
+            value={result.fallbackText}
+            copyLabel="Copy response"
+          />
         ) : null}
 
         {error ? (
@@ -469,4 +551,17 @@ function parsePromptSections(text: string): PromptSections {
     negative: blocks[1] ?? "",
     settings: blocks.slice(2).join("\n\n"),
   };
+}
+
+function isPromptSections(value: unknown): value is PromptSections {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<PromptSections>;
+  return (
+    typeof candidate.positive === "string" &&
+    typeof candidate.negative === "string" &&
+    typeof candidate.settings === "string"
+  );
 }

@@ -3,9 +3,17 @@
 import { useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
+import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
+import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-import type { DirectorRequest, VideoPlanPayload, VideoPlanResponse } from "@/lib/directorTypes";
+import type {
+  DirectorMediaAsset,
+  DirectorRequest,
+  DirectorResponse,
+  VideoPlanPayload,
+  VideoPlanResponse,
+} from "@/lib/directorTypes";
 import {
   atmosphere,
   cameraAngles,
@@ -56,9 +64,13 @@ export default function VideoBuilderPage() {
   const [colorPaletteSelection, setColorPaletteSelection] = useState<string[]>([]);
   const [atmosphereSelection, setAtmosphereSelection] = useState<string[]>([]);
   const [moodProfile, setMoodProfile] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoPlanResult | null>(null);
+  const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
+  const [apiKey, setApiKey] = useState("");
+  const [rawPlanText, setRawPlanText] = useState<string | null>(null);
 
   const cinematicControlGroups: Array<{
     label: string;
@@ -128,8 +140,11 @@ export default function VideoBuilderPage() {
     setIsSubmitting(true);
     setError(null);
     setResult(null);
+    setMediaAssets([]);
+    setRawPlanText(null);
 
     try {
+      const images = await encodeFiles(files);
       const cinematicControlOptions: NonNullable<
         VideoPlanPayload["cinematic_control_options"]
       > = {};
@@ -183,22 +198,56 @@ export default function VideoBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      const trimmedKey = apiKey.trim();
+      if (trimmedKey.length) {
+        headers["x-provider-api-key"] = trimmedKey;
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
+      const responseJson = (await response.json().catch(() => null)) as
+        | DirectorResponse<VideoPlanResponse | string>
+        | null;
+
       if (!response.ok) {
-        const message = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(message?.error ?? "Failed to generate video plan");
+        const message = (responseJson as { error?: string } | null)?.error;
+        throw new Error(message ?? "Failed to generate video plan");
       }
 
-      const { text } = (await response.json()) as { text: string };
-      const parsed = JSON.parse(text) as VideoPlanResponse;
-      setResult(parsed);
+      if (!responseJson) {
+        throw new Error("Empty response from director");
+      }
+
+      const candidateText =
+        (typeof responseJson.result === "string"
+          ? responseJson.result
+          : null) ?? responseJson.text ?? responseJson.fallbackText ?? null;
+
+      let parsedPlan: VideoPlanResponse | null = null;
+
+      if (responseJson.result && typeof responseJson.result !== "string") {
+        parsedPlan = responseJson.result as VideoPlanResponse;
+      } else if (candidateText) {
+        try {
+          parsedPlan = JSON.parse(candidateText) as VideoPlanResponse;
+        } catch (parseError) {
+          console.warn("Unable to parse plan JSON", parseError);
+        }
+      }
+
+      if (!parsedPlan) {
+        setRawPlanText(candidateText);
+        throw new Error("Unexpected response format from director");
+      }
+
+      setRawPlanText(candidateText ?? JSON.stringify(parsedPlan, null, 2));
+      setResult(parsedPlan);
+      setMediaAssets(responseJson.media ?? []);
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -309,6 +358,26 @@ export default function VideoBuilderPage() {
           maxFiles={6}
         />
 
+        <div className="space-y-2">
+          <label className="block space-y-1">
+            <span className="text-sm font-semibold text-slate-200">
+              Provider API key (optional)
+            </span>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Gemini, OpenAI, etc."
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
+          </label>
+          <p className="text-xs text-slate-400">
+            Used only for this browser session and attached to your request payload.
+          </p>
+        </div>
+
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-slate-200">
             Mood profile (optional)
@@ -341,6 +410,10 @@ export default function VideoBuilderPage() {
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
             Veo-ready plans will appear here once generated.
           </div>
+        ) : null}
+
+        {mediaAssets.length ? (
+          <GeneratedMediaGallery assets={mediaAssets} />
         ) : null}
 
         {result ? (
@@ -388,6 +461,15 @@ export default function VideoBuilderPage() {
             </div>
           </div>
         ) : null}
+
+        {rawPlanText && (
+          <PromptOutput
+            label="Generation response"
+            value={rawPlanText}
+            copyLabel="Copy response"
+            isCode
+          />
+        )}
 
         {error ? (
           <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-100">
