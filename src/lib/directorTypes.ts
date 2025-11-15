@@ -60,42 +60,62 @@ export type DirectorRequest =
   | { mode: "video_plan"; payload: VideoPlanPayload; images?: string[] }
   | { mode: "loop_sequence"; payload: LoopSequencePayload; images?: string[] };
 
-export type DirectorMediaAsset = {
-  id?: string;
-  /**
-   * The coarse classification for the generated asset. Defaults to "unknown" when not provided.
-   */
-  kind?: "image" | "video" | "audio" | "unknown";
-  mimeType?: string | null;
-  url?: string | null;
-  /**
-   * Raw base64 data for inline rendering when a CDN url is not provided.
-   */
-  base64?: string | null;
-  /**
-   * Optional caption or alt-text style description for the asset.
-   */
-  caption?: string | null;
-  description?: string | null;
-  thumbnailUrl?: string | null;
-  thumbnailBase64?: string | null;
-  posterUrl?: string | null;
-  posterBase64?: string | null;
-  frames?: Array<{
-    url?: string | null;
-    base64?: string | null;
-    mimeType?: string | null;
-    caption?: string | null;
-  }>;
+export type GeneratedImage = {
+  mimeType: string;
+  data: string;
+  altText?: string;
+};
+
+export type GeneratedVideo = {
+  url?: string;
+  mimeType?: string;
+  base64?: string;
+  posterImage?: string;
+  durationSeconds?: number;
+  frameRate?: number;
+  frames?: string[];
+};
+
+export type LoopSequenceResult = {
+  frames: GeneratedImage[];
+  loopLength?: number | null;
+  frameRate?: number;
   metadata?: Record<string, unknown>;
 };
 
-export type DirectorResponse<T = unknown> = {
-  text?: string | null;
-  result?: T;
-  media?: DirectorMediaAsset[];
-  fallbackText?: string | null;
+export type DirectorCoreSuccess =
+  | {
+      success: true;
+      mode: "image_prompt";
+      provider: "gemini";
+      images: GeneratedImage[];
+      promptText?: string;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      success: true;
+      mode: "video_plan";
+      provider: "veo-3.1";
+      videos: GeneratedVideo[];
+      storyboard?: unknown;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      success: true;
+      mode: "loop_sequence";
+      provider: "nano-banana";
+      loop: LoopSequenceResult;
+    };
+
+export type DirectorCoreError = {
+  success: false;
+  error: string;
+  provider?: string;
+  status?: number;
+  details?: unknown;
 };
+
+export type DirectorCoreResult = DirectorCoreSuccess | DirectorCoreError;
 
 export type SceneJSON = {
   segment_title: string;

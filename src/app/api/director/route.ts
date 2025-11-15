@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { callDirectorCore } from "@/lib/directorClient";
+import { callDirectorCore, DirectorCoreError } from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
   VideoPlanPayload,
   LoopSequencePayload,
+  DirectorCoreResult,
 } from "@/lib/directorTypes";
 
 type UnknownRecord = Record<string, unknown>;
@@ -13,6 +14,14 @@ type UnknownRecord = Record<string, unknown>;
 type ValidationResult =
   | { ok: true; value: DirectorRequest }
   | { ok: false; error: string };
+
+const DIRECTOR_API_KEY_HEADER = "x-director-api-key";
+const REQUIRE_DIRECTOR_API_KEY = parseEnvBoolean(
+  process.env.DIRECTOR_CORE_REQUIRE_API_KEY
+);
+const FALLBACK_DIRECTOR_API_KEY = getNonEmptyString(
+  process.env.DIRECTOR_CORE_API_KEY
+);
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -26,7 +35,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const validation = validateDirectorRequest(body);
+  const bodyRecord = isRecord(body) ? (body as UnknownRecord) : null;
+  const apiKeyFromBody = bodyRecord ? getNonEmptyString(bodyRecord.apiKey) : undefined;
+  const apiKeyFromHeaders = extractApiKeyFromHeaders(request.headers);
+  const apiKey = apiKeyFromHeaders ?? apiKeyFromBody ?? FALLBACK_DIRECTOR_API_KEY;
+
+  if (REQUIRE_DIRECTOR_API_KEY && !apiKey) {
+    return NextResponse.json(
+      { error: "An API key is required to call Director Core." },
+      { status: 401 }
+    );
+  }
+
+  let payloadForValidation: unknown = body;
+
+  if (bodyRecord && "apiKey" in bodyRecord) {
+    const cloned: UnknownRecord = { ...bodyRecord };
+    delete cloned.apiKey;
+    payloadForValidation = cloned;
+  }
+
+  const validation = validateDirectorRequest(payloadForValidation);
 
   if (!validation.ok) {
     return NextResponse.json(
@@ -36,15 +65,56 @@ export async function POST(request: Request) {
   }
 
   try {
-    const text = await callDirectorCore(validation.value);
-    return NextResponse.json({ text });
+    const result = await callDirectorCore(validation.value);
+    if (isDirectorCoreError(result)) {
+      const status = result.status ?? 502;
+      return NextResponse.json(
+        {
+          error: result.error,
+          provider: result.provider,
+          details: result.details ?? null,
+        },
+        { status }
+      );
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Director Core invocation failed", error);
+
+    if (error instanceof DirectorCoreError) {
+      const status = error.status ?? resolveStatusFromCode(error.code);
+      const responseBody: UnknownRecord = {
+        error: error.message,
+        code: error.code,
+      };
+
+      const details = sanitizeErrorDetails(error.details);
+      if (details !== undefined) {
+        responseBody.details = details;
+      }
+
+      if (error.fallbackResult) {
+        responseBody.fallback = formatSuccessPayload(error.fallbackResult);
+      }
+
+      return NextResponse.json(responseBody, {
+        status: status ?? 500,
+      });
+    }
+
     return NextResponse.json(
       { error: "Director Core is not yet available" },
       { status: 500 }
     );
   }
+}
+
+function isDirectorCoreError(result: DirectorCoreResult): result is Extract<
+  DirectorCoreResult,
+  { success: false }
+> {
+  return result.success === false;
 }
 
 function validateDirectorRequest(payload: unknown): ValidationResult {
@@ -388,7 +458,7 @@ function parseNullableString(value: unknown): string | null {
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
-  return Boolean(value) && typeof value === "object";
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNonEmptyString(value: unknown): value is string {
