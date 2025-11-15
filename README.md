@@ -58,3 +58,4 @@ src/
 - Both API routes expect JSON POST requests and respond with JSON.
 - If the OpenAI response cannot be parsed, the API returns a 500 error with a friendly message for the UI.
 - Initial persistence is in-memory only; future iterations can add database-backed history.
+- There is no Vercel-specific configuration required; any leftover local `.vercel` folder from earlier deployment attempts can be safely deleted and is now ignored by Git.
