@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
+import {
+  callDirectorCore,
+  mapDirectorCoreSuccess,
+  type DirectorProviderCredentials,
+} from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
@@ -85,7 +89,8 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json(result);
+    const responsePayload = mapDirectorCoreSuccess(result);
+    return NextResponse.json(responsePayload);
   } catch (error) {
     console.error("Director Core invocation failed", error);
 
@@ -102,6 +107,32 @@ function extractProviderKeys(
   mode: DirectorRequest["mode"]
 ): ProviderKeyBundle {
   const keys: ProviderKeyBundle = {};
+
+  const geminiHeaderKey = normalizeApiKey(
+    getHeaderValue(request, ["x-gemini-api-key"])
+  );
+  if (geminiHeaderKey) {
+    keys.geminiApiKey = geminiHeaderKey;
+  }
+
+  const veoHeaderKey = normalizeApiKey(getHeaderValue(request, ["x-veo-api-key"]));
+  if (veoHeaderKey) {
+    keys.veoApiKey = veoHeaderKey;
+  }
+
+  const nanoHeaderKey = normalizeApiKey(
+    getHeaderValue(request, ["x-nano-banana-api-key"])
+  );
+  if (nanoHeaderKey) {
+    keys.nanoBananaApiKey = nanoHeaderKey;
+  }
+
+  const headerKey = normalizeApiKey(
+    getHeaderValue(request, ["x-provider-api-key"])
+  );
+  if (headerKey) {
+    assignKeyForMode(keys, mode, headerKey);
+  }
 
   if (isRecord(body)) {
     assignProviderKeysFromRecord(keys, body);
@@ -121,11 +152,6 @@ function extractProviderKeys(
     if (generalBodyKey) {
       assignKeyForMode(keys, mode, generalBodyKey);
     }
-  }
-
-  const headerKey = normalizeApiKey(request.headers.get("x-provider-api-key"));
-  if (headerKey) {
-    assignKeyForMode(keys, mode, headerKey);
   }
 
   return keys;

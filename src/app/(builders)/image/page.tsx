@@ -9,9 +9,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
+  DirectorCoreResult,
+  DirectorCoreSuccess,
   DirectorMediaAsset,
   DirectorRequest,
-  DirectorResponse,
   ImagePromptPayload,
 } from "@/lib/directorTypes";
 import { encodeFiles } from "@/lib/encodeFiles";
@@ -277,10 +278,8 @@ export default function ImageBuilderPage() {
       });
 
       const responseJson = (await response.json().catch(() => null)) as
-        | (DirectorResponse<string> & {
-            promptSections?: PromptSections;
-            sections?: PromptSections;
-          })
+        | DirectorCoreResult
+        | { error?: string }
         | null;
 
       if (!response.ok) {
@@ -292,29 +291,25 @@ export default function ImageBuilderPage() {
         throw new Error("Empty response from director");
       }
 
-      const rawText =
-        responseJson.text ??
-        (typeof responseJson.result === "string"
-          ? responseJson.result
-          : null) ??
-        responseJson.fallbackText ??
-        null;
+      if (responseJson.success !== true) {
+        throw new Error("Director Core returned an unexpected payload");
+      }
 
-      let promptSections: PromptSections | null =
-        responseJson.promptSections ?? responseJson.sections ?? null;
+      if (responseJson.mode !== "image_prompt") {
+        throw new Error("Director Core returned non-image data");
+      }
 
-      if (!promptSections) {
-        if (isPromptSections(responseJson.result)) {
-          promptSections = responseJson.result;
-        } else if (rawText) {
-          promptSections = parsePromptSections(rawText);
-        }
+      const promptText = responseJson.promptText ?? null;
+      let promptSections: PromptSections | null = null;
+
+      if (promptText) {
+        promptSections = parsePromptSections(promptText);
       }
 
       setResult({
         sections: promptSections,
-        fallbackText: rawText,
-        media: responseJson.media ?? [],
+        fallbackText: promptText,
+        media: mapImagesToMediaAssets(responseJson),
       });
     } catch (submissionError) {
       console.error(submissionError);
@@ -575,6 +570,31 @@ function SeedSection({
   );
 }
 
+type ImagePromptSuccess = Extract<DirectorCoreSuccess, { mode: "image_prompt" }>;
+
+function mapImagesToMediaAssets(result: ImagePromptSuccess): DirectorMediaAsset[] {
+  return (result.images ?? []).map((image, index) => {
+    const { url, base64 } = normalizeMediaValue(image.data);
+    return {
+      id: image.altText ?? `image-${index}`,
+      kind: "image",
+      mimeType: image.mimeType,
+      url,
+      base64,
+      caption: image.altText ?? null,
+      description: image.altText ?? null,
+    } satisfies DirectorMediaAsset;
+  });
+}
+
+function normalizeMediaValue(value: string): { url?: string; base64?: string } {
+  if (/^(https?:|blob:)/i.test(value) || value.startsWith("data:")) {
+    return { url: value };
+  }
+
+  return { base64: value };
+}
+
 function OptionGrid({
   label,
   options,
@@ -637,15 +657,3 @@ function parsePromptSections(text: string): PromptSections {
   };
 }
 
-function isPromptSections(value: unknown): value is PromptSections {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<PromptSections>;
-  return (
-    typeof candidate.positive === "string" &&
-    typeof candidate.negative === "string" &&
-    typeof candidate.settings === "string"
-  );
-}

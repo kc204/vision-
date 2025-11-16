@@ -2,7 +2,11 @@ import { parseModelList } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import type {
   DirectorCoreResult,
+  DirectorCoreSuccess,
+  DirectorMediaAsset,
+  DirectorMediaAssetFrame,
   DirectorRequest,
+  DirectorSuccessResponse,
   GeneratedImage,
   GeneratedVideo,
   LoopSequenceResult,
@@ -743,4 +747,204 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
     }
   }
   return fallback;
+}
+
+export function mapDirectorCoreSuccess(
+  result: DirectorCoreSuccess
+): DirectorSuccessResponse {
+  switch (result.mode) {
+    case "image_prompt": {
+      const promptText = result.promptText?.trim() ?? null;
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        text: promptText,
+        result: promptText,
+        fallbackText: promptText,
+        media: mapGeneratedImagesToMedia(result.images),
+        metadata: result.metadata ?? null,
+      };
+    }
+    case "video_plan": {
+      const planText = stringifyStoryboard(result.storyboard);
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        text: planText,
+        fallbackText: planText,
+        result: (result.storyboard as unknown) ?? planText ?? null,
+        media: mapGeneratedVideosToMedia(result.videos),
+        metadata: result.metadata ?? null,
+      };
+    }
+    case "loop_sequence": {
+      const media = mapLoopSequenceToMedia(result.loop);
+      return {
+        success: true,
+        mode: result.mode,
+        provider: result.provider,
+        text: null,
+        fallbackText: null,
+        result: (result.loop.metadata as unknown) ?? null,
+        media,
+        metadata: result.loop.metadata ?? null,
+      };
+    }
+    default:
+      return assertNever(result);
+  }
+}
+
+function mapGeneratedImagesToMedia(images: GeneratedImage[]): DirectorMediaAsset[] {
+  return images.map((image, index) => {
+    const source = partitionAssetSource(image.data);
+    return {
+      id: image.altText ?? `image-${index}`,
+      kind: "image",
+      url: source?.kind === "url" ? source.value : null,
+      base64: source?.kind === "base64" ? source.value : null,
+      mimeType: image.mimeType ?? null,
+      caption: image.altText ?? null,
+    } satisfies DirectorMediaAsset;
+  });
+}
+
+function mapGeneratedVideosToMedia(videos: GeneratedVideo[]): DirectorMediaAsset[] {
+  return videos.map((video, index) => {
+    const poster = partitionAssetSource(video.posterImage);
+    const frames = Array.isArray(video.frames)
+      ? video.frames
+          .map((frame, frameIndex) =>
+            mapVideoFrame(frame, frameIndex, video.mimeType)
+          )
+          .filter((frame): frame is DirectorMediaAssetFrame => Boolean(frame))
+      : undefined;
+
+    const asset: DirectorMediaAsset = {
+      id: video.url ?? video.base64 ?? `video-${index}`,
+      kind: "video",
+      url: video.url ?? null,
+      base64: video.base64 ?? null,
+      mimeType: video.mimeType ?? null,
+      posterUrl: poster?.kind === "url" ? poster.value : null,
+      posterBase64: poster?.kind === "base64" ? poster.value : null,
+      durationSeconds: video.durationSeconds ?? null,
+      frameRate: video.frameRate ?? null,
+      frames,
+    };
+
+    return asset;
+  });
+}
+
+function mapVideoFrame(
+  value: string,
+  frameIndex: number,
+  mimeType?: string | null
+): DirectorMediaAssetFrame | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const source = partitionAssetSource(value);
+  if (!source) {
+    return undefined;
+  }
+
+  const frame: DirectorMediaAssetFrame = {
+    id: `frame-${frameIndex}`,
+    mimeType: mimeType ?? null,
+  };
+
+  if (source.kind === "url") {
+    frame.url = source.value;
+  } else {
+    frame.base64 = source.value;
+  }
+
+  return frame;
+}
+
+function mapLoopSequenceToMedia(loop: LoopSequenceResult): DirectorMediaAsset[] {
+  if (!loop.frames.length) {
+    return [];
+  }
+
+  const frames = loop.frames.map((frame, index) => {
+    const source = partitionAssetSource(frame.data);
+    const frameAsset: DirectorMediaAssetFrame = {
+      id: frame.altText ?? `loop-frame-${index}`,
+      mimeType: frame.mimeType ?? null,
+      caption: frame.altText ?? null,
+    };
+
+    if (source?.kind === "url") {
+      frameAsset.url = source.value;
+    } else if (source?.kind === "base64") {
+      frameAsset.base64 = source.value;
+    }
+
+    return frameAsset;
+  });
+
+  const primary = frames.find((frame) => frame.base64 || frame.url);
+
+  return [
+    {
+      id: "loop-sequence",
+      kind: "image",
+      url: primary?.url ?? null,
+      base64: primary?.base64 ?? null,
+      mimeType: loop.frames[0]?.mimeType ?? null,
+      durationSeconds:
+        typeof loop.loopLength === "number" ? loop.loopLength : null,
+      frameRate: loop.frameRate ?? null,
+      frames,
+    },
+  ];
+}
+
+type AssetSource = { kind: "url" | "base64"; value: string };
+
+function partitionAssetSource(value: string | undefined | null):
+  | AssetSource
+  | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (isLikelyUrl(trimmed) || trimmed.startsWith("data:")) {
+    return { kind: "url", value: trimmed };
+  }
+
+  return { kind: "base64", value: trimmed };
+}
+
+function stringifyStoryboard(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function assertNever(value: never): never {
+  throw new Error(
+    `Unhandled director response: ${JSON.stringify(value as Record<string, unknown>)}`
+  );
 }

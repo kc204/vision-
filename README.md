@@ -26,18 +26,22 @@ The app exposes two primary modules:
 
 ## Environment variables
 
-Create a `.env.local` file in the project root containing the environment variables that NextAuth enforces in `src/lib/auth.ts`:
+Create a `.env.local` file in the project root to provide API keys for the supported providers. These values allow the server and/or browser to make authenticated requests on your behalf and do not configure any OAuth flows.
 
 ```bash
-GOOGLE_CLIENT_ID="your-google-oauth-client-id"
-GOOGLE_CLIENT_SECRET="your-google-oauth-client-secret"
-NEXTAUTH_SECRET="a-long-random-string"
+# Optional browser defaults that appear in the credential status bar
+NEXT_PUBLIC_GEMINI_API_KEY=""
+NEXT_PUBLIC_VEO_API_KEY=""
+NEXT_PUBLIC_NANO_BANANA_API_KEY=""
+
+# Server-side fallbacks for Director Core routes
+GEMINI_API_KEY=""
+GOOGLE_API_KEY=""
+VEO_API_KEY=""
+NANO_BANANA_API_KEY=""
 ```
 
-- **`GOOGLE_CLIENT_ID`** and **`GOOGLE_CLIENT_SECRET`** come from a Google OAuth 2.0 Client ID. In the Google Cloud Console, open **APIs & Services → Credentials**, create (or reuse) an **OAuth client ID** for a Web application, and add `http://localhost:3000/api/auth/callback/google` to the authorized redirect URIs. Copy the generated Client ID and Client Secret into `.env.local`.
-- **`NEXTAUTH_SECRET`** secures JWT sessions in production. Generate a value with `openssl rand -base64 32` (or an equivalent random string generator) and add it to `.env.local`.
-
-For more details on configuring Google as an identity provider, refer to the [NextAuth Google provider documentation](https://next-auth.js.org/providers/google).
+Populate whichever keys you have access to—local browser credentials entered in the UI always take precedence.
 ## Tech stack
 - Next.js App Router with TypeScript
 - Tailwind CSS for styling
