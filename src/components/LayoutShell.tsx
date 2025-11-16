@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Route } from "next";
 import type { ReactNode } from "react";
 
 const navItems = [
@@ -9,7 +10,7 @@ const navItems = [
   { href: "/video", label: "Video" },
   { href: "/loop", label: "Loop" },
   { href: "/loop-assistant", label: "Loop Assistant" },
-];
+] satisfies Array<{ href: Route; label: string }>;
 
 export function LayoutShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

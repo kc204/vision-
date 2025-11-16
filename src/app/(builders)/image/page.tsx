@@ -270,19 +270,25 @@ export default function ImageBuilderPage() {
         body: JSON.stringify(requestPayload),
       });
 
-      const responseJson = (await response.json().catch(() => null)) as
+      const rawResponseJson = (await response.json().catch(() => null)) as
         | DirectorCoreResult
         | { error?: string }
         | null;
 
       if (!response.ok) {
-        const message = (responseJson as { error?: string } | null)?.error;
+        const message = (rawResponseJson as { error?: string } | null)?.error;
         throw new Error(message ?? "Failed to generate prompt");
       }
 
-      if (!responseJson) {
+      if (
+        !rawResponseJson ||
+        typeof rawResponseJson !== "object" ||
+        !("success" in rawResponseJson)
+      ) {
         throw new Error("Empty response from director");
       }
+
+      const responseJson: DirectorCoreResult = rawResponseJson;
 
       if (responseJson.success !== true) {
         throw new Error("Director Core returned an unexpected payload");
