@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { callDirectorCore, type DirectorProviderCredentials } from "@/lib/directorClient";
+import {
+  callDirectorCore,
+  mapDirectorCoreSuccess,
+  type DirectorProviderCredentials,
+} from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
@@ -85,7 +89,8 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json(result);
+    const responsePayload = mapDirectorCoreSuccess(result);
+    return NextResponse.json(responsePayload);
   } catch (error) {
     console.error("Director Core invocation failed", error);
 

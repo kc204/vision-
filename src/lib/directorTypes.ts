@@ -117,6 +117,58 @@ export type DirectorCoreError = {
 
 export type DirectorCoreResult = DirectorCoreSuccess | DirectorCoreError;
 
+export type DirectorMediaAssetFrame = {
+  id?: string | number | null;
+  url?: string | null;
+  base64?: string | null;
+  mimeType?: string | null;
+  caption?: string | null;
+  description?: string | null;
+};
+
+export type DirectorMediaAsset = {
+  id?: string | number | null;
+  kind?: "image" | "video" | string | null;
+  url?: string | null;
+  base64?: string | null;
+  mimeType?: string | null;
+  caption?: string | null;
+  description?: string | null;
+  posterUrl?: string | null;
+  posterBase64?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailBase64?: string | null;
+  durationSeconds?: number | null;
+  frameRate?: number | null;
+  width?: number | null;
+  height?: number | null;
+  frames?: DirectorMediaAssetFrame[];
+  metadata?: Record<string, unknown> | null;
+};
+
+export type DirectorSuccessResponse<T = unknown> = {
+  success: true;
+  mode: DirectorMode;
+  provider?: string;
+  text?: string | null;
+  result?: T | null;
+  fallbackText?: string | null;
+  media?: DirectorMediaAsset[];
+  metadata?: Record<string, unknown> | null;
+};
+
+export type DirectorErrorResponse = {
+  success: false;
+  error: string;
+  provider?: string;
+  status?: number;
+  details?: unknown;
+};
+
+export type DirectorResponse<T = unknown> =
+  | DirectorSuccessResponse<T>
+  | DirectorErrorResponse;
+
 export type SceneJSON = {
   segment_title: string;
   scene_description: string;
