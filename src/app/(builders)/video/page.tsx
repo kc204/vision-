@@ -103,6 +103,15 @@ const INITIAL_FORM_STATE = {
 
 type VideoPlanResult = VideoPlanResponse;
 
+type LegacyVideoPlanResponse = {
+  result?: VideoPlanResponse | string | null;
+  text?: string | null;
+  fallbackText?: string | null;
+  media?: DirectorMediaAsset[];
+};
+
+type DirectorCoreErrorResult = Extract<DirectorCoreResult, { success: false }>;
+
 type SceneCardProps = {
   index: number;
   scene: VideoPlanResponse["scenes"][number];
@@ -150,6 +159,9 @@ export default function VideoBuilderPage() {
   const [result, setResult] = useState<VideoPlanResult | null>(null);
   const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
+  const [storyboardMetadata, setStoryboardMetadata] = useState<string | null>(
+    null
+  );
   const [useSamplePlan, setUseSamplePlan] = useState(false);
   const { geminiApiKey, veoApiKey } = useProviderCredentials();
 
@@ -188,6 +200,7 @@ export default function VideoBuilderPage() {
     setResult(null);
     setMediaAssets([]);
     setRawPlanText(null);
+    setStoryboardMetadata(null);
     setError(null);
   }, [useSamplePlan]);
 
@@ -265,6 +278,7 @@ export default function VideoBuilderPage() {
     setResult(null);
     setMediaAssets([]);
     setRawPlanText(null);
+    setStoryboardMetadata(null);
 
     try {
       const images = await encodeFiles(files);
@@ -573,6 +587,15 @@ export default function VideoBuilderPage() {
             </div>
           </div>
         ) : null}
+
+        {storyboardMetadata && (
+          <PromptOutput
+            label="Storyboard metadata"
+            value={storyboardMetadata}
+            copyLabel="Copy storyboard"
+            isCode
+          />
+        )}
 
         {rawPlanText && (
           <PromptOutput
