@@ -10,9 +10,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
+  DirectorCoreResult,
+  DirectorCoreSuccess,
   DirectorMediaAsset,
   DirectorRequest,
-  DirectorResponse,
   VideoPlanPayload,
   VideoPlanResponse,
 } from "@/lib/directorTypes";
@@ -335,7 +336,8 @@ export default function VideoBuilderPage() {
       });
 
       const responseJson = (await response.json().catch(() => null)) as
-        | DirectorResponse<VideoPlanResponse | string>
+        | DirectorCoreResult
+        | { error?: string }
         | null;
 
       if (!response.ok) {
@@ -347,31 +349,24 @@ export default function VideoBuilderPage() {
         throw new Error("Empty response from director");
       }
 
-      const candidateText =
-        (typeof responseJson.result === "string"
-          ? responseJson.result
-          : null) ?? responseJson.text ?? responseJson.fallbackText ?? null;
-
-      let parsedPlan: VideoPlanResponse | null = null;
-
-      if (responseJson.result && typeof responseJson.result !== "string") {
-        parsedPlan = responseJson.result as VideoPlanResponse;
-      } else if (candidateText) {
-        try {
-          parsedPlan = JSON.parse(candidateText) as VideoPlanResponse;
-        } catch (parseError) {
-          console.warn("Unable to parse plan JSON", parseError);
-        }
+      if (responseJson.success !== true) {
+        throw new Error("Director Core returned an unexpected payload");
       }
 
-      if (!parsedPlan) {
-        setRawPlanText(candidateText);
-        throw new Error("Unexpected response format from director");
+      if (responseJson.mode !== "video_plan") {
+        throw new Error("Director Core returned non-video data");
       }
 
-      setRawPlanText(candidateText ?? JSON.stringify(parsedPlan, null, 2));
-      setResult(parsedPlan);
-      setMediaAssets(responseJson.media ?? []);
+      const { plan, rawText } = extractVideoPlan(responseJson);
+
+      if (!plan) {
+        setRawPlanText(rawText ?? null);
+        throw new Error("Director Core did not return a video plan");
+      }
+
+      setRawPlanText(rawText ?? JSON.stringify(plan, null, 2));
+      setResult(plan);
+      setMediaAssets(mapVideosToMediaAssets(responseJson));
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -771,4 +766,152 @@ function Detail({ label, value }: { label: string; value: string }) {
       <p className="mt-1 whitespace-pre-wrap text-slate-100">{value}</p>
     </div>
   );
+}
+
+type VideoPlanSuccess = Extract<DirectorCoreSuccess, { mode: "video_plan" }>;
+
+function extractVideoPlan(result: VideoPlanSuccess): {
+  plan: VideoPlanResponse | null;
+  rawText: string | null;
+} {
+  const candidates: unknown[] = [];
+
+  if (result.storyboard !== undefined) {
+    candidates.push(result.storyboard);
+  }
+
+  if (result.metadata && typeof result.metadata === "object") {
+    const metadata = result.metadata as Record<string, unknown>;
+    const metadataKeys = [
+      "storyboard",
+      "plan",
+      "plan_json",
+      "planJson",
+      "videoPlan",
+      "video_plan",
+      "response",
+      "text",
+    ];
+    for (const key of metadataKeys) {
+      if (metadata[key] !== undefined) {
+        candidates.push(metadata[key]);
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseVideoPlanCandidate(candidate);
+    if (parsed) {
+      const rawText =
+        typeof candidate === "string"
+          ? candidate
+          : JSON.stringify(candidate, null, 2);
+      return { plan: parsed, rawText };
+    }
+  }
+
+  const fallbackCandidate = candidates.find(
+    (candidate): candidate is string => typeof candidate === "string"
+  );
+
+  return {
+    plan: null,
+    rawText:
+      fallbackCandidate ??
+      (candidates.length ? JSON.stringify(candidates[0], null, 2) : null),
+  };
+}
+
+function parseVideoPlanCandidate(candidate: unknown): VideoPlanResponse | null {
+  if (!candidate) {
+    return null;
+  }
+
+  if (typeof candidate === "string") {
+    try {
+      const parsed = JSON.parse(candidate);
+      return parseVideoPlanCandidate(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof candidate !== "object") {
+    return null;
+  }
+
+  const record = candidate as Record<string, unknown>;
+  const scenesCandidate =
+    Array.isArray(record.scenes)
+      ? record.scenes
+      : Array.isArray(record.storyboard)
+      ? record.storyboard
+      : undefined;
+
+  if (!Array.isArray(scenesCandidate)) {
+    return null;
+  }
+
+  const thumbnailConcept =
+    typeof record.thumbnailConcept === "string"
+      ? record.thumbnailConcept
+      : typeof record.thumbnail_concept === "string"
+      ? record.thumbnail_concept
+      : undefined;
+
+  return {
+    scenes: scenesCandidate as VideoPlanResponse["scenes"],
+    thumbnailConcept: thumbnailConcept ?? "Thumbnail concept pending",
+  };
+}
+
+function mapVideosToMediaAssets(result: VideoPlanSuccess): DirectorMediaAsset[] {
+  return (result.videos ?? []).map((video, index) => {
+    const primarySource = splitMediaValue(video.url);
+    const fallbackSource = splitMediaValue(video.base64);
+    const posterSource = splitMediaValue(video.posterImage);
+    const frames = (video.frames ?? []).map((frame, frameIndex) => {
+      const frameSource = splitMediaValue(frame);
+      return {
+        url: frameSource.url ?? undefined,
+        base64: frameSource.base64 ?? undefined,
+        mimeType: frameSource.mimeType ?? undefined,
+        caption: `Frame ${frameIndex + 1}`,
+      };
+    });
+
+    return {
+      id: video.url ?? `video-${index}`,
+      kind: "video",
+      url: primarySource.url ?? fallbackSource.url ?? undefined,
+      base64: primarySource.base64 ?? fallbackSource.base64 ?? undefined,
+      mimeType: video.mimeType ?? primarySource.mimeType ?? fallbackSource.mimeType,
+      posterUrl: posterSource.url ?? undefined,
+      posterBase64: posterSource.base64 ?? undefined,
+      frames,
+      durationSeconds: video.durationSeconds ?? null,
+      frameRate: video.frameRate ?? null,
+    } satisfies DirectorMediaAsset;
+  });
+}
+
+function splitMediaValue(value?: string | null): {
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+} {
+  if (!value) {
+    return {};
+  }
+
+  const dataUrlMatch = /^data:([^;]+);base64,/i.exec(value);
+  if (dataUrlMatch) {
+    return { url: value, mimeType: dataUrlMatch[1] };
+  }
+
+  if (/^(https?:|blob:)/i.test(value)) {
+    return { url: value };
+  }
+
+  return { base64: value };
 }
