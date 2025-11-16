@@ -8,6 +8,9 @@ const GEMINI_CHAT_MODELS = parseModelList(
   ["gemini-1.5-pro-latest"]
 );
 
+const EXPECTED_GEMINI_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"];
+let geminiModelLogPromise: Promise<void> | null = null;
+
 export type GeminiChatRole = "user" | "assistant";
 
 export type GeminiChatMessage = {
@@ -32,6 +35,86 @@ export type GeminiChatResult = GeminiChatSuccess | GeminiChatError;
 type GeminiChatCredentials = {
   apiKey?: string;
 };
+
+export function logAvailableGeminiModels(force = false): Promise<void> {
+  if (!force && geminiModelLogPromise) {
+    return geminiModelLogPromise;
+  }
+
+  const promise = (async () => {
+    const apiKey =
+      getNonEmptyString(process.env.GEMINI_API_KEY) ??
+      getNonEmptyString(process.env.GOOGLE_API_KEY);
+
+    if (!apiKey) {
+      console.warn(
+        "[Gemini] Cannot log available models because GEMINI_API_KEY or GOOGLE_API_KEY is not configured."
+      );
+      return;
+    }
+
+    const url = `${GEMINI_API_URL}/models?key=${encodeURIComponent(apiKey)}`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        let errorBody: string | undefined;
+        try {
+          errorBody = await response.text();
+        } catch (readError) {
+          errorBody = readError instanceof Error ? readError.message : undefined;
+        }
+        console.error(
+          `[Gemini] Failed to fetch available models (${response.status} ${response.statusText}).`,
+          errorBody
+        );
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        console.error("[Gemini] Unable to parse available models response.", parseError);
+        return;
+      }
+
+      const models = extractGeminiModelIds(payload);
+      if (models.length === 0) {
+        console.warn("[Gemini] Model listing succeeded but no model IDs were returned.");
+      } else {
+        console.info(`[Gemini] Available models (${models.length}): ${models.join(", ")}`);
+      }
+
+      const missing = EXPECTED_GEMINI_MODELS.filter((model) => !models.includes(model));
+      if (missing.length === 0) {
+        console.info("[Gemini] Confirmed gemini-2.5 model availability.");
+      } else {
+        console.warn(
+          `[Gemini] Missing expected models: ${missing.join(", ")}. Check API configuration.`
+        );
+      }
+    } catch (error) {
+      console.error("[Gemini] Error while logging available models.", error);
+    }
+  })();
+
+  if (!force) {
+    geminiModelLogPromise = promise;
+  }
+
+  return promise;
+}
+
+const shouldAutoLogGeminiModels =
+  typeof window === "undefined" &&
+  getNonEmptyString(process.env.GEMINI_LOG_MODELS)?.toLowerCase() === "true";
+
+if (shouldAutoLogGeminiModels) {
+  logAvailableGeminiModels().catch((error) => {
+    console.error("[Gemini] Automatic model logging failed.", error);
+  });
+}
 
 export async function callGeminiChat(
   systemPrompt: string,
@@ -174,6 +257,25 @@ function extractReplyText(payload: unknown): string | null {
   }
 
   return null;
+}
+
+function extractGeminiModelIds(payload: unknown): string[] {
+  if (!isRecord(payload)) {
+    return [];
+  }
+
+  const { models } = payload;
+  if (!Array.isArray(models)) {
+    return [];
+  }
+
+  const modelIds: string[] = [];
+  for (const entry of models) {
+    if (isRecord(entry) && typeof entry.name === "string") {
+      modelIds.push(entry.name.replace(/^models\//, ""));
+    }
+  }
+  return modelIds;
 }
 
 function extractGeminiErrorMessage(payload: unknown, fallback: string): string {
