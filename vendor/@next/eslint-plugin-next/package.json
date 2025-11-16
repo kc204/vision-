@@ -1,0 +1,14 @@
+{
+  "name": "@next/eslint-plugin-next",
+  "version": "14.1.0-local",
+  "main": "index.js",
+  "license": "MIT",
+  "description": "Lightweight stub of the Next.js ESLint plugin for offline linting.",
+  "keywords": ["nextjs", "eslint", "plugin"],
+  "peerDependencies": {
+    "eslint": ">=8"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

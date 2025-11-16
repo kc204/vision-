@@ -1,0 +1,12 @@
+{
+  "name": "eslint-config-next",
+  "version": "14.1.0-local",
+  "main": "index.js",
+  "license": "MIT",
+  "description": "Minimal Next.js ESLint config for offline builds.",
+  "keywords": ["nextjs", "eslint", "config"],
+  "peerDependencies": {
+    "eslint": ">=8",
+    "@next/eslint-plugin-next": ">=14.0.0"
+  }
+}
