@@ -3,9 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
+import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
-import type { DirectorRequest, LoopCycleJSON, LoopSequencePayload } from "@/lib/directorTypes";
+import type {
+  DirectorCoreResult,
+  DirectorMediaAsset,
+  DirectorRequest,
+  LoopCycleJSON,
+  LoopSequencePayload,
+  LoopSequenceResult,
+} from "@/lib/directorTypes";
 import {
   atmosphere,
   cameraAngles,
@@ -27,6 +35,11 @@ type LoopSelectedOptions = {
   lightingStyles: string[];
   colorPalettes: string[];
   atmosphere: string[];
+};
+
+type LoopSummary = {
+  loopLength?: number | null;
+  frameRate?: number | null;
 };
 
 const optionGroups: Array<{
@@ -86,6 +99,8 @@ export default function LoopBuilderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
+  const [loopMediaAssets, setLoopMediaAssets] = useState<DirectorMediaAsset[]>([]);
+  const [loopSummary, setLoopSummary] = useState<LoopSummary | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
   const { providerApiKey, setProviderApiKey } = useProviderApiKey();
   const { nanoBananaApiKey } = useProviderCredentials();
@@ -123,6 +138,8 @@ export default function LoopBuilderPage() {
 
     setFiles([]);
     setCycles(null);
+    setLoopMediaAssets([]);
+    setLoopSummary(null);
     setError(null);
   }, [useSampleLoop]);
 
@@ -141,6 +158,8 @@ export default function LoopBuilderPage() {
     setIsSubmitting(true);
     setError(null);
     setCycles(null);
+    setLoopMediaAssets([]);
+    setLoopSummary(null);
 
     try {
       const images = await encodeFiles(files);
@@ -194,16 +213,38 @@ export default function LoopBuilderPage() {
         body: JSON.stringify(requestPayload),
       });
 
-      if (!response.ok) {
-        const message = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(message?.error ?? "Failed to generate loop plan");
+      const result = (await response.json().catch(() => null)) as
+        | DirectorCoreResult
+        | null;
+
+      if (!result) {
+        throw new Error("Director Core returned an empty response");
       }
 
-      const { text } = (await response.json()) as { text: string };
-      const parsed = JSON.parse(text) as LoopCycleJSON[];
-      setCycles(parsed);
+      if (!result.success) {
+        throw new Error(formatDirectorError(result));
+      }
+
+      if (!isLoopSequenceSuccess(result)) {
+        throw new Error("Director Core responded with an unexpected payload");
+      }
+
+      const loopResult = result.loop ?? null;
+
+      if (!loopResult) {
+        const fallbackCycles = extractFallbackLoopCycles(result);
+        if (fallbackCycles?.length) {
+          setCycles(fallbackCycles);
+          return;
+        }
+
+        throw new Error("Director Core response did not include loop data");
+      }
+
+      const loopCycles = extractLoopCyclesFromLoop(loopResult);
+      setCycles(loopCycles.length ? loopCycles : null);
+      setLoopMediaAssets(convertFramesToMediaAssets(loopResult.frames));
+      setLoopSummary(extractLoopSummary(loopResult));
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -369,11 +410,15 @@ export default function LoopBuilderPage() {
       </form>
 
       <aside className="space-y-6">
-        {!cycles && !error ? (
+        {!cycles && !loopMediaAssets.length && !error ? (
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
-            Loop cycles will appear here once generated.
+            Loop cycles and frames will appear here once generated.
           </div>
         ) : null}
+
+        {loopSummary ? <LoopMetadataCard summary={loopSummary} /> : null}
+
+        <GeneratedMediaGallery assets={loopMediaAssets} title="Loop frames" />
 
         {cycles ? (
           <div className="space-y-4">
@@ -479,6 +524,37 @@ function LoopCycleCard({ cycle }: LoopCycleCardProps) {
   );
 }
 
+type LoopMetadataCardProps = {
+  summary: LoopSummary;
+};
+
+function LoopMetadataCard({ summary }: LoopMetadataCardProps) {
+  const loopLengthLabel =
+    typeof summary.loopLength === "number"
+      ? `${summary.loopLength} cycle${summary.loopLength === 1 ? "" : "s"}`
+      : "Not provided";
+  const frameRateLabel =
+    typeof summary.frameRate === "number"
+      ? `${summary.frameRate} fps`
+      : "Not provided";
+
+  return (
+    <article className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-5">
+      <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">Loop metadata</p>
+      <dl className="grid gap-4 text-sm text-slate-200 sm:grid-cols-2">
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-slate-400">Loop length</dt>
+          <dd className="text-lg font-semibold text-white">{loopLengthLabel}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-slate-400">Frame rate</dt>
+          <dd className="text-lg font-semibold text-white">{frameRateLabel}</dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -559,4 +635,293 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
+}
+
+type LoopSequenceSuccess = Extract<
+  DirectorCoreResult,
+  { success: true; mode: "loop_sequence" }
+>;
+
+type DirectorCoreErrorResult = Extract<DirectorCoreResult, { success: false }>;
+
+function isLoopSequenceSuccess(result: DirectorCoreResult): result is LoopSequenceSuccess {
+  return result.success === true && result.mode === "loop_sequence";
+}
+
+function formatDirectorError(result: DirectorCoreErrorResult): string {
+  const details: string[] = [result.error];
+  if (result.provider) {
+    details.push(`provider: ${result.provider}`);
+  }
+  if (typeof result.status === "number") {
+    details.push(`status: ${result.status}`);
+  }
+  return details.join(" · ");
+}
+
+function extractLoopSummary(loop: LoopSequenceResult | null | undefined): LoopSummary | null {
+  if (!loop) {
+    return null;
+  }
+  const hasLoopLength = typeof loop.loopLength === "number";
+  const hasFrameRate = typeof loop.frameRate === "number";
+
+  if (!hasLoopLength && !hasFrameRate) {
+    return null;
+  }
+
+  return {
+    loopLength: hasLoopLength ? loop.loopLength : null,
+    frameRate: hasFrameRate ? loop.frameRate : null,
+  };
+}
+
+function extractLoopCyclesFromLoop(loop: LoopSequenceResult | null | undefined): LoopCycleJSON[] {
+  if (!loop) {
+    return [];
+  }
+
+  const metadataCycles = parseLoopCyclesFromMetadata(loop.metadata);
+  if (metadataCycles.length) {
+    return metadataCycles;
+  }
+
+  return parseLoopCyclesFromFrames(loop.frames);
+}
+
+function parseLoopCyclesFromMetadata(
+  metadata: LoopSequenceResult["metadata"]
+): LoopCycleJSON[] {
+  if (!metadata || typeof metadata !== "object") {
+    return [];
+  }
+
+  const candidateKeys = [
+    "loop_cycles",
+    "loopCycles",
+    "loop_plan",
+    "loopPlan",
+    "cycles",
+    "sequence",
+  ];
+
+  for (const key of candidateKeys) {
+    if (key in metadata) {
+      const normalized = normalizeLoopCycleEntry(
+        (metadata as Record<string, unknown>)[key]
+      );
+      if (normalized.length) {
+        return normalized;
+      }
+    }
+  }
+
+  return [];
+}
+
+function parseLoopCyclesFromFrames(frames: LoopSequenceResult["frames"]): LoopCycleJSON[] {
+  const cycles: LoopCycleJSON[] = [];
+  for (const frame of frames) {
+    if (!frame.altText) {
+      continue;
+    }
+    const parsed = normalizeLoopCycleEntry(frame.altText);
+    if (parsed.length) {
+      cycles.push(...parsed);
+    }
+  }
+  return cycles;
+}
+
+function convertFramesToMediaAssets(
+  frames: LoopSequenceResult["frames"]
+): DirectorMediaAsset[] {
+  return frames.map((frame, index) => {
+    const trimmedData = typeof frame.data === "string" ? frame.data.trim() : "";
+    const derivedCycles = frame.altText ? normalizeLoopCycleEntry(frame.altText) : [];
+    const representativeCycle = derivedCycles[0];
+
+    const asset: DirectorMediaAsset = {
+      id: `loop-frame-${index}`,
+      kind: "image",
+      mimeType: frame.mimeType,
+      caption:
+        representativeCycle?.segment_title ??
+        (frame.altText?.trim() || `Loop frame ${index + 1}`),
+      description: representativeCycle?.scene_description,
+    };
+
+    if (!trimmedData) {
+      return asset;
+    }
+
+    if (isLikelyUrl(trimmedData)) {
+      asset.url = trimmedData;
+    } else {
+      asset.base64 = trimmedData;
+    }
+
+    return asset;
+  });
+}
+
+function extractFallbackLoopCycles(
+  result: LoopSequenceSuccess
+): LoopCycleJSON[] | null {
+  const legacyText = getLegacyLoopText(result);
+  if (!legacyText) {
+    return null;
+  }
+  return parseLoopCyclesFromJsonString(legacyText);
+}
+
+function getLegacyLoopText(result: LoopSequenceSuccess): string | null {
+  const textCandidate = (result as { text?: unknown }).text;
+  if (typeof textCandidate === "string" && textCandidate.trim().length) {
+    return textCandidate;
+  }
+
+  const metadata = result.loop?.metadata;
+  if (metadata && typeof metadata === "object") {
+    const keys = ["rawText", "raw_text", "text", "loop_json", "loopJson"];
+    for (const key of keys) {
+      const value = (metadata as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.trim().length) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseLoopCyclesFromJsonString(text: string): LoopCycleJSON[] | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    const normalized = normalizeLoopCycleEntry(parsed);
+    return normalized.length ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLoopCycleEntry(source: unknown): LoopCycleJSON[] {
+  if (!source) {
+    return [];
+  }
+
+  if (Array.isArray(source)) {
+    return source.flatMap((entry) => normalizeLoopCycleEntry(entry));
+  }
+
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normalizeLoopCycleEntry(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  if (isLoopCycleJSON(source)) {
+    return [source];
+  }
+
+  if (isRecord(source)) {
+    const recordSource = source as Record<string, unknown>;
+    const nestedKeys = ["loop_cycle", "loopCycle", "cycle", "value", "data"];
+    for (const key of nestedKeys) {
+      if (key in recordSource) {
+        const nested = normalizeLoopCycleEntry(recordSource[key]);
+        if (nested.length) {
+          return nested;
+        }
+      }
+    }
+
+    if (Array.isArray(recordSource.cycles)) {
+      const nested = recordSource.cycles.flatMap((entry) => normalizeLoopCycleEntry(entry));
+      if (nested.length) {
+        return nested;
+      }
+    }
+  }
+
+  return [];
+}
+
+function isLoopCycleJSON(value: unknown): value is LoopCycleJSON {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const recordValue = value as Record<string, unknown>;
+  const requiredFields: Array<keyof LoopCycleJSON> = [
+    "segment_title",
+    "scene_description",
+    "main_subject",
+    "camera_movement",
+    "visual_tone",
+    "motion",
+    "mood",
+    "narrative",
+  ];
+
+  if (
+    !requiredFields.every((field) => typeof recordValue[field] === "string")
+  ) {
+    return false;
+  }
+
+  if (
+    !Array.isArray(recordValue.acceptance_check) ||
+    !recordValue.acceptance_check.every((entry) => typeof entry === "string")
+  ) {
+    return false;
+  }
+
+  const continuity = recordValue.continuity_lock;
+  if (!isRecord(continuity)) {
+    return false;
+  }
+
+  const continuityRecord = continuity as Record<string, unknown>;
+  const continuityFields = [
+    "subject_identity",
+    "lighting_and_palette",
+    "camera_grammar",
+    "environment_motif",
+    "emotional_trajectory",
+  ];
+
+  if (
+    !continuityFields.every((field) => typeof continuityRecord[field] === "string")
+  ) {
+    return false;
+  }
+
+  if (
+    recordValue.sound_suggestion !== undefined &&
+    typeof recordValue.sound_suggestion !== "string"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isLikelyUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value) || value.startsWith("data:");
 }
