@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
@@ -45,6 +45,22 @@ export default function LoopAssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
   const { geminiApiKey } = useProviderCredentials();
+  const [bootstrapRetryToken, setBootstrapRetryToken] = useState(0);
+  const lastBootstrapAttemptRef = useRef<string | null>(null);
+  const trimmedGeminiApiKey = geminiApiKey?.trim() ?? "";
+  const [debouncedGeminiApiKey, setDebouncedGeminiApiKey] = useState(
+    trimmedGeminiApiKey
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedGeminiApiKey(trimmedGeminiApiKey);
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [trimmedGeminiApiKey]);
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -60,7 +76,18 @@ export default function LoopAssistantPage() {
   }, [useSampleAssistant]);
 
   useEffect(() => {
+    if (messages.length > 0) {
+      return;
+    }
+
     let isActive = true;
+
+    const attemptKey = `${debouncedGeminiApiKey}|${bootstrapRetryToken}`;
+    if (lastBootstrapAttemptRef.current === attemptKey) {
+      return;
+    }
+
+    lastBootstrapAttemptRef.current = attemptKey;
 
     async function bootstrapConversation() {
       setIsRequesting(true);
@@ -113,7 +140,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, [geminiApiKey]);
+  }, [debouncedGeminiApiKey, bootstrapRetryToken, messages.length]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -185,6 +212,12 @@ export default function LoopAssistantPage() {
     } finally {
       setIsRequesting(false);
     }
+  }
+
+  function handleRetryBootstrap() {
+    lastBootstrapAttemptRef.current = null;
+    setBootstrapRetryToken((previous) => previous + 1);
+    setError(null);
   }
 
   return (
@@ -281,7 +314,21 @@ export default function LoopAssistantPage() {
                 placeholder="Ask a follow-up question, request revisions, or add new guidance."
               />
               <div className="flex items-center justify-between gap-3">
-                {error ? (
+                {error && messages.length === 0 ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-xs text-rose-400" role="alert">
+                      {error}
+                    </p>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-rose-200 hover:text-rose-100"
+                      onClick={handleRetryBootstrap}
+                      disabled={isRequesting}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : error ? (
                   <p className="text-xs text-rose-400" role="alert">
                     {error}
                   </p>
