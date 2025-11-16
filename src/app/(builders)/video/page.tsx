@@ -10,9 +10,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
+  DirectorCoreResult,
   DirectorMediaAsset,
   DirectorRequest,
-  DirectorResponse,
+  GeneratedVideo,
   VideoPlanPayload,
   VideoPlanResponse,
 } from "@/lib/directorTypes";
@@ -102,6 +103,15 @@ const INITIAL_FORM_STATE = {
 
 type VideoPlanResult = VideoPlanResponse;
 
+type LegacyVideoPlanResponse = {
+  result?: VideoPlanResponse | string | null;
+  text?: string | null;
+  fallbackText?: string | null;
+  media?: DirectorMediaAsset[];
+};
+
+type DirectorCoreErrorResult = Extract<DirectorCoreResult, { success: false }>;
+
 type SceneCardProps = {
   index: number;
   scene: VideoPlanResponse["scenes"][number];
@@ -149,6 +159,9 @@ export default function VideoBuilderPage() {
   const [result, setResult] = useState<VideoPlanResult | null>(null);
   const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
+  const [storyboardMetadata, setStoryboardMetadata] = useState<string | null>(
+    null
+  );
   const [useSamplePlan, setUseSamplePlan] = useState(false);
   const { geminiApiKey, veoApiKey } = useProviderCredentials();
 
@@ -187,6 +200,7 @@ export default function VideoBuilderPage() {
     setResult(null);
     setMediaAssets([]);
     setRawPlanText(null);
+    setStoryboardMetadata(null);
     setError(null);
   }, [useSamplePlan]);
 
@@ -264,6 +278,7 @@ export default function VideoBuilderPage() {
     setResult(null);
     setMediaAssets([]);
     setRawPlanText(null);
+    setStoryboardMetadata(null);
 
     try {
       const images = await encodeFiles(files);
@@ -335,7 +350,9 @@ export default function VideoBuilderPage() {
       });
 
       const responseJson = (await response.json().catch(() => null)) as
-        | DirectorResponse<VideoPlanResponse | string>
+        | DirectorCoreResult
+        | LegacyVideoPlanResponse
+        | { error?: string; provider?: string; status?: number }
         | null;
 
       if (!response.ok) {
@@ -347,16 +364,44 @@ export default function VideoBuilderPage() {
         throw new Error("Empty response from director");
       }
 
-      const candidateText =
-        (typeof responseJson.result === "string"
-          ? responseJson.result
-          : null) ?? responseJson.text ?? responseJson.fallbackText ?? null;
-
       let parsedPlan: VideoPlanResponse | null = null;
+      let candidateText: string | null = null;
+      let fallbackMediaAssets: DirectorMediaAsset[] | null = null;
 
-      if (responseJson.result && typeof responseJson.result !== "string") {
-        parsedPlan = responseJson.result as VideoPlanResponse;
-      } else if (candidateText) {
+      if (isDirectorCoreResultResponse(responseJson)) {
+        if (!responseJson.success) {
+          throw new Error(formatDirectorCoreError(responseJson));
+        }
+
+        if (responseJson.provider === "veo-3.1") {
+          const mediaFromVideos = convertVideosToMediaAssets(
+            responseJson.videos
+          );
+          const storyboardText = formatStoryboardMetadata(
+            responseJson.storyboard,
+            responseJson.metadata
+          );
+          setStoryboardMetadata(storyboardText);
+
+          if (mediaFromVideos.length > 0) {
+            setMediaAssets(mediaFromVideos);
+            setResult(null);
+            setRawPlanText(null);
+            return;
+          }
+
+          candidateText = extractStoryboardPlanText(responseJson.storyboard);
+        }
+      } else if (isLegacyVideoPlanResponse(responseJson)) {
+        fallbackMediaAssets = responseJson.media ?? null;
+        if (responseJson.result && typeof responseJson.result !== "string") {
+          parsedPlan = responseJson.result;
+        } else {
+          candidateText = extractLegacyPlanText(responseJson);
+        }
+      }
+
+      if (!parsedPlan && candidateText) {
         try {
           parsedPlan = JSON.parse(candidateText) as VideoPlanResponse;
         } catch (parseError) {
@@ -371,7 +416,9 @@ export default function VideoBuilderPage() {
 
       setRawPlanText(candidateText ?? JSON.stringify(parsedPlan, null, 2));
       setResult(parsedPlan);
-      setMediaAssets(responseJson.media ?? []);
+      if (fallbackMediaAssets?.length) {
+        setMediaAssets(fallbackMediaAssets);
+      }
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -579,6 +626,15 @@ export default function VideoBuilderPage() {
           </div>
         ) : null}
 
+        {storyboardMetadata && (
+          <PromptOutput
+            label="Storyboard metadata"
+            value={storyboardMetadata}
+            copyLabel="Copy storyboard"
+            isCode
+          />
+        )}
+
         {rawPlanText && (
           <PromptOutput
             label="Generation response"
@@ -771,4 +827,152 @@ function Detail({ label, value }: { label: string; value: string }) {
       <p className="mt-1 whitespace-pre-wrap text-slate-100">{value}</p>
     </div>
   );
+}
+
+function isDirectorCoreResultResponse(
+  payload: unknown
+): payload is DirectorCoreResult {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  return typeof candidate.success === "boolean";
+}
+
+function isLegacyVideoPlanResponse(
+  payload: unknown
+): payload is LegacyVideoPlanResponse {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  return (
+    "result" in candidate ||
+    "text" in candidate ||
+    "fallbackText" in candidate ||
+    "media" in candidate
+  );
+}
+
+function formatDirectorCoreError(result: DirectorCoreErrorResult) {
+  const details = [
+    result.provider ? `provider: ${result.provider}` : null,
+    result.status ? `status: ${result.status}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  return details.length ? `${result.error} (${details})` : result.error;
+}
+
+function convertVideosToMediaAssets(
+  videos: GeneratedVideo[]
+): DirectorMediaAsset[] {
+  if (!Array.isArray(videos) || videos.length === 0) {
+    return [];
+  }
+
+  return videos.map((video, index) => {
+    const descriptionParts: string[] = [];
+    if (typeof video.durationSeconds === "number") {
+      descriptionParts.push(`${video.durationSeconds.toFixed(1)}s`);
+    }
+    if (typeof video.frameRate === "number") {
+      descriptionParts.push(`${video.frameRate} fps`);
+    }
+
+    const poster = normalizeMediaSource(video.posterImage);
+    const frames = Array.isArray(video.frames)
+      ? video.frames.map((frame, frameIndex) => {
+          const source = normalizeMediaSource(frame);
+          return {
+            url: source.url,
+            base64: source.base64,
+            mimeType: video.mimeType,
+            caption: `Frame ${frameIndex + 1}`,
+          };
+        })
+      : undefined;
+
+    return {
+      id: video.url ?? video.base64 ?? `video-${index}`,
+      kind: "video",
+      url: normalizeMediaSource(video.url).url,
+      base64: normalizeMediaSource(video.base64).base64,
+      mimeType: video.mimeType,
+      posterUrl: poster.url,
+      posterBase64: poster.base64,
+      caption: descriptionParts.length ? descriptionParts.join(" • ") : undefined,
+      frames,
+    } satisfies DirectorMediaAsset;
+  });
+}
+
+function normalizeMediaSource(value: string | undefined | null): {
+  url?: string;
+  base64?: string;
+} {
+  if (typeof value !== "string") {
+    return {};
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return { url: trimmed };
+  }
+  return { base64: trimmed };
+}
+
+function formatStoryboardMetadata(
+  storyboard: unknown,
+  metadata?: Record<string, unknown>
+): string | null {
+  if (!storyboard && (!metadata || Object.keys(metadata).length === 0)) {
+    return null;
+  }
+
+  if (storyboard && !metadata) {
+    return extractStoryboardPlanText(storyboard);
+  }
+
+  try {
+    return JSON.stringify(
+      {
+        storyboard,
+        metadata,
+      },
+      null,
+      2
+    );
+  } catch {
+    return null;
+  }
+}
+
+function extractStoryboardPlanText(storyboard: unknown): string | null {
+  if (!storyboard) {
+    return null;
+  }
+
+  if (typeof storyboard === "string") {
+    const trimmed = storyboard.trim();
+    return trimmed.length ? trimmed : null;
+  }
+
+  try {
+    return JSON.stringify(storyboard, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function extractLegacyPlanText(response: LegacyVideoPlanResponse): string | null {
+  if (typeof response.result === "string") {
+    return response.result;
+  }
+
+  return response.text ?? response.fallbackText ?? null;
 }
