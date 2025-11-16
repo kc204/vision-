@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, type ReactNode } from "react";
-
-import { useProviderCredentials } from "@/hooks/useProviderCredentials";
+import type { ReactNode } from "react";
 
 const navItems = [
   { href: "/image", label: "Image" },
@@ -15,33 +13,6 @@ const navItems = [
 
 export function LayoutShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { geminiApiKey, veoApiKey, nanoBananaApiKey } = useProviderCredentials();
-
-  const providerStatuses = useMemo(
-    () => [
-      {
-        label: "Gemini",
-        ready:
-          Boolean(geminiApiKey?.trim().length) ||
-          Boolean(process.env.NEXT_PUBLIC_GEMINI_API_KEY?.length) ||
-          Boolean(process.env.NEXT_PUBLIC_GOOGLE_API_KEY?.length),
-      },
-      {
-        label: "Veo",
-        ready:
-          Boolean(veoApiKey?.trim().length) ||
-          Boolean(process.env.NEXT_PUBLIC_VEO_API_KEY?.length) ||
-          Boolean(process.env.NEXT_PUBLIC_GOOGLE_API_KEY?.length),
-      },
-      {
-        label: "Nano Banana",
-        ready:
-          Boolean(nanoBananaApiKey?.trim().length) ||
-          Boolean(process.env.NEXT_PUBLIC_NANO_BANANA_API_KEY?.length),
-      },
-    ],
-    [geminiApiKey, veoApiKey, nanoBananaApiKey]
-  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -74,23 +45,19 @@ export function LayoutShell({ children }: { children: ReactNode }) {
             </nav>
             <div className="flex flex-col items-start gap-2 text-sm text-slate-300 sm:flex-row sm:items-center">
               <div className="flex flex-col text-left">
-                <span className="text-xs uppercase tracking-wide text-slate-500">API credentials</span>
-                <span className="font-medium text-white">Stored locally in your browser</span>
+                <span className="text-xs uppercase tracking-wide text-slate-500">Provider access</span>
+                <span className="font-medium text-white">Managed by Director Core</span>
                 <span className="text-xs text-slate-400">
-                  Keys are applied to Director Core requests when available.
+                  Requests route through server-provisioned Gemini, Veo, and Nano Banana credentials.
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {providerStatuses.map((status) => (
+                {["Gemini", "Veo", "Nano Banana"].map((label) => (
                   <span
-                    key={status.label}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      status.ready
-                        ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
-                        : "bg-amber-500/10 text-amber-200/90 ring-1 ring-amber-500/30"
-                    }`}
+                    key={label}
+                    className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 ring-1 ring-white/10"
                   >
-                    {status.label}: {status.ready ? "Ready" : "Needed"}
+                    {label}: Managed
                   </span>
                 ))}
               </div>
