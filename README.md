@@ -26,18 +26,16 @@ The app exposes two primary modules:
 
 ## Environment variables
 
-Create a `.env.local` file in the project root containing the environment variables that NextAuth enforces in `src/lib/auth.ts`:
+No authentication providers are required. To avoid pasting keys into the browser every session, you can optionally configure provider API keys via `.env.local`:
 
 ```bash
-GOOGLE_CLIENT_ID="your-google-oauth-client-id"
-GOOGLE_CLIENT_SECRET="your-google-oauth-client-secret"
-NEXTAUTH_SECRET="a-long-random-string"
+GEMINI_API_KEY="your-gemini-api-key"
+GOOGLE_API_KEY="your-google-ai-studio-key"
+VEO_API_KEY="your-veo-api-key"
+NANO_BANANA_API_KEY="your-nano-banana-api-key"
 ```
 
-- **`GOOGLE_CLIENT_ID`** and **`GOOGLE_CLIENT_SECRET`** come from a Google OAuth 2.0 Client ID. In the Google Cloud Console, open **APIs & Services → Credentials**, create (or reuse) an **OAuth client ID** for a Web application, and add `http://localhost:3000/api/auth/callback/google` to the authorized redirect URIs. Copy the generated Client ID and Client Secret into `.env.local`.
-- **`NEXTAUTH_SECRET`** secures JWT sessions in production. Generate a value with `openssl rand -base64 32` (or an equivalent random string generator) and add it to `.env.local`.
-
-For more details on configuring Google as an identity provider, refer to the [NextAuth Google provider documentation](https://next-auth.js.org/providers/google).
+Any keys defined here are used as fallbacks when builder panels are missing local credentials.
 ## Tech stack
 - Next.js App Router with TypeScript
 - Tailwind CSS for styling

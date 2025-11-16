@@ -334,11 +334,9 @@ export default function LoopAssistantPage() {
                   </p>
                 ) : (
                   <span className="text-xs text-slate-400">
-                    {status !== "authenticated"
-                      ? "Sign in with Google to begin the conversation."
-                      : isRequesting
-                        ? "Waiting for the assistant..."
-                        : "Share your direction to keep iterating."}
+                    {isRequesting
+                      ? "Waiting for the assistant..."
+                      : "Share your direction to keep iterating."}
                   </span>
                 )}
                 <button
@@ -346,8 +344,7 @@ export default function LoopAssistantPage() {
                   className="inline-flex items-center rounded-xl bg-canvas-accent px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={
                     isRequesting ||
-                    messageInput.trim().length === 0 ||
-                    status !== "authenticated"
+                    messageInput.trim().length === 0
                   }
                 >
                   {isRequesting ? "Sending" : "Send"}
