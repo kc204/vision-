@@ -13,7 +13,7 @@ import type {
 } from "./directorTypes";
 
 const GEMINI_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
+  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
 const VEO_API_URL = process.env.VEO_API_URL ?? GEMINI_API_URL;
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
