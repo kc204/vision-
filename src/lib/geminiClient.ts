@@ -1,7 +1,7 @@
 import { parseModelList } from "./googleModels";
 
 const GEMINI_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
+  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
 
 const GEMINI_CHAT_MODELS = parseModelList(
   process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,

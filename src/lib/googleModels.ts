@@ -1,5 +1,5 @@
 const DEFAULT_GOOGLE_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1beta";
+  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
 
 const entitlementCache = new Map<string, Promise<Set<string>>>();
 
