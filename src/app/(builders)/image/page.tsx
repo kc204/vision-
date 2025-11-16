@@ -9,9 +9,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
 import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 import type {
+  DirectorCoreResult,
   DirectorMediaAsset,
   DirectorRequest,
-  DirectorResponse,
+  GeneratedImage,
   ImagePromptPayload,
 } from "@/lib/directorTypes";
 import { encodeFiles } from "@/lib/encodeFiles";
@@ -277,44 +278,48 @@ export default function ImageBuilderPage() {
       });
 
       const responseJson = (await response.json().catch(() => null)) as
-        | (DirectorResponse<string> & {
-            promptSections?: PromptSections;
-            sections?: PromptSections;
-          })
+        | DirectorCoreResult
+        | { error?: string; provider?: string; status?: number }
         | null;
 
-      if (!response.ok) {
-        const message = (responseJson as { error?: string } | null)?.error;
-        throw new Error(message ?? "Failed to generate prompt");
-      }
-
       if (!responseJson) {
-        throw new Error("Empty response from director");
+        throw new Error("Empty response from Director Core");
       }
 
-      const rawText =
-        responseJson.text ??
-        (typeof responseJson.result === "string"
-          ? responseJson.result
-          : null) ??
-        responseJson.fallbackText ??
-        null;
-
-      let promptSections: PromptSections | null =
-        responseJson.promptSections ?? responseJson.sections ?? null;
-
-      if (!promptSections) {
-        if (isPromptSections(responseJson.result)) {
-          promptSections = responseJson.result;
-        } else if (rawText) {
-          promptSections = parsePromptSections(rawText);
-        }
+      if (!response.ok) {
+        throw new Error(
+          formatDirectorErrorMessage(
+            responseJson,
+            "Failed to generate prompt"
+          )
+        );
       }
+
+      if (responseJson.success !== true) {
+        throw new Error(
+          formatDirectorErrorMessage(
+            responseJson,
+            "Director Core request failed"
+          )
+        );
+      }
+
+      if (responseJson.mode !== "image_prompt") {
+        throw new Error("Director Core returned an unexpected response");
+      }
+
+      const promptText = responseJson.promptText?.trim() ?? null;
+      const media = convertImagesToMediaAssets(responseJson.images ?? []);
+
+      const sections =
+        media.length === 0 && promptText
+          ? parsePromptSections(promptText)
+          : null;
 
       setResult({
-        sections: promptSections,
-        fallbackText: rawText,
-        media: responseJson.media ?? [],
+        sections,
+        fallbackText: promptText,
+        media,
       });
     } catch (submissionError) {
       console.error(submissionError);
@@ -624,6 +629,58 @@ function toggleSelection(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((value) => value !== id) : [...list, id];
 }
 
+function formatDirectorErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const candidate = payload as {
+    error?: string | null;
+    provider?: string | null;
+    status?: number | null;
+  };
+
+  const providerPrefix = candidate.provider ? `${candidate.provider} ` : "";
+  const statusSuffix =
+    typeof candidate.status === "number" ? ` (status ${candidate.status})` : "";
+  const message = candidate.error ?? fallback;
+
+  return `${providerPrefix}${message}${statusSuffix}`.trim();
+}
+
+function convertImagesToMediaAssets(
+  images: GeneratedImage[]
+): DirectorMediaAsset[] {
+  return images
+    .map((image, index) => {
+      const trimmedData = image.data?.trim();
+      if (!trimmedData) {
+        return null;
+      }
+
+      const isUrl = isLikelyUrl(trimmedData);
+
+      return {
+        id: `generated-image-${index}`,
+        kind: "image",
+        mimeType: image.mimeType,
+        url: isUrl ? trimmedData : undefined,
+        base64: isUrl ? undefined : trimmedData,
+        caption: image.altText,
+        description: image.altText,
+      } satisfies DirectorMediaAsset;
+    })
+    .filter((asset): asset is DirectorMediaAsset => Boolean(asset));
+}
+
+function isLikelyUrl(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /^https?:\/\//i.test(value.trim());
+}
+
 function parsePromptSections(text: string): PromptSections {
   const blocks = text
     .split(/\n\s*\n/)
@@ -635,17 +692,4 @@ function parsePromptSections(text: string): PromptSections {
     negative: blocks[1] ?? "",
     settings: blocks.slice(2).join("\n\n"),
   };
-}
-
-function isPromptSections(value: unknown): value is PromptSections {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<PromptSections>;
-  return (
-    typeof candidate.positive === "string" &&
-    typeof candidate.negative === "string" &&
-    typeof candidate.settings === "string"
-  );
 }

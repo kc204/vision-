@@ -76,6 +76,29 @@ export type GeneratedVideo = {
   frames?: string[];
 };
 
+export type DirectorMediaFrame = {
+  id?: string | number;
+  url?: string | null;
+  base64?: string | null;
+  mimeType?: string | null;
+  caption?: string | null;
+};
+
+export type DirectorMediaAsset = {
+  id?: string | number;
+  kind?: "image" | "video";
+  url?: string | null;
+  base64?: string | null;
+  mimeType?: string | null;
+  posterUrl?: string | null;
+  posterBase64?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailBase64?: string | null;
+  caption?: string | null;
+  description?: string | null;
+  frames?: DirectorMediaFrame[];
+};
+
 export type LoopSequenceResult = {
   frames: GeneratedImage[];
   loopLength?: number | null;
@@ -116,6 +139,8 @@ export type DirectorCoreError = {
 };
 
 export type DirectorCoreResult = DirectorCoreSuccess | DirectorCoreError;
+
+export type DirectorResponse = DirectorCoreResult;
 
 export type SceneJSON = {
   segment_title: string;
