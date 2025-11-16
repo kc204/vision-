@@ -11,7 +11,9 @@ import {
 } from "react";
 
 import type {
+  AriaAttributes,
   FocusEvent,
+  HTMLAttributes,
   KeyboardEvent,
   MouseEvent,
 } from "react";
@@ -41,11 +43,15 @@ export function Tooltip({
     }
   };
 
-  const trigger = Children.only(children);
+  const triggerElement = Children.only(children);
 
-  if (!isValidElement(trigger)) {
+  if (!isValidElement(triggerElement)) {
     throw new Error("Tooltip expects a single React element child");
   }
+
+  type TriggerProps = HTMLAttributes<Element> & AriaAttributes;
+
+  const trigger = triggerElement as ReactElement<TriggerProps>;
 
   const { onFocus, onBlur, onMouseEnter, onMouseLeave, onKeyDown } =
     trigger.props as Record<string, unknown>;
