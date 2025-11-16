@@ -1,4 +1,4 @@
-import { parseModelList } from "./googleModels";
+import { enforceAllowedGeminiModels, parseModelList } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import type {
   DirectorCoreResult,
@@ -18,9 +18,17 @@ const VEO_API_URL = process.env.VEO_API_URL ?? GEMINI_API_URL;
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
-const GEMINI_IMAGE_MODELS = parseModelList(
-  process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
-  ["gemini-2.5-flash"]
+const DEFAULT_GEMINI_IMAGE_MODELS = ["gemini-2.5-flash"] as const;
+const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
+  parseModelList(
+    process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
+    [...DEFAULT_GEMINI_IMAGE_MODELS]
+  ),
+  {
+    fallback: DEFAULT_GEMINI_IMAGE_MODELS,
+    context: "image",
+    envVar: "GEMINI_IMAGE_MODELS",
+  }
 );
 const VEO_VIDEO_MODELS = parseModelList(
   process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
