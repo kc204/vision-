@@ -16,6 +16,47 @@ export function parseModelList(value: string | undefined, fallback: string[]): s
   return entries.length > 0 ? entries : [...fallback];
 }
 
+export const GEMINI_ALLOWED_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"] as const;
+
+type GeminiAllowedModel = (typeof GEMINI_ALLOWED_MODELS)[number];
+
+export function enforceAllowedGeminiModels(
+  requested: string[],
+  options: { fallback: readonly GeminiAllowedModel[]; context: string; envVar?: string }
+): GeminiAllowedModel[] {
+  const allowedSet = new Set<string>(GEMINI_ALLOWED_MODELS);
+  const valid = requested.filter((model) => allowedSet.has(model)) as GeminiAllowedModel[];
+  const invalid = requested.filter((model) => !allowedSet.has(model));
+
+  if (invalid.length > 0) {
+    const aliasExamples = invalid.filter((model) => model.endsWith("-latest"));
+    const aliasHint =
+      aliasExamples.length > 0
+        ? ` Aliases such as "${aliasExamples.join(", ")}" are not supported; configure an explicit model ID.`
+        : "";
+    const source = options.envVar ? `${options.envVar}` : "Gemini model configuration";
+    console.error(
+      `[Gemini] Unsupported ${options.context} model(s) in ${source}: ${invalid.join(", ")}.${aliasHint} Allowed models: ${GEMINI_ALLOWED_MODELS.join(", ")}.`
+    );
+  }
+
+  if (valid.length > 0) {
+    return valid;
+  }
+
+  const fallback = options.fallback.filter((model) => allowedSet.has(model)) as GeminiAllowedModel[];
+  if (fallback.length === 0) {
+    throw new Error(
+      `[Gemini] Unable to determine a valid ${options.context} model. Provide one of: ${GEMINI_ALLOWED_MODELS.join(", ")}.`
+    );
+  }
+
+  console.warn(
+    `[Gemini] Falling back to default ${options.context} models: ${fallback.join(", ")}.`
+  );
+  return [...fallback];
+}
+
 export async function resolveGoogleModel(
   accessToken: string,
   candidates: string[],

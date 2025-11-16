@@ -1,14 +1,27 @@
-import { parseModelList } from "./googleModels";
+import {
+  GEMINI_ALLOWED_MODELS,
+  enforceAllowedGeminiModels,
+  parseModelList,
+} from "./googleModels";
 
 const GEMINI_API_URL =
   process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
 
-const GEMINI_CHAT_MODELS = parseModelList(
-  process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
-  ["gemini-2.5-pro"]
+const DEFAULT_GEMINI_CHAT_MODELS = ["gemini-2.5-pro"] as const;
+
+const GEMINI_CHAT_MODELS = enforceAllowedGeminiModels(
+  parseModelList(
+    process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
+    [...DEFAULT_GEMINI_CHAT_MODELS]
+  ),
+  {
+    fallback: DEFAULT_GEMINI_CHAT_MODELS,
+    context: "chat",
+    envVar: "GEMINI_CHAT_MODELS",
+  }
 );
 
-const EXPECTED_GEMINI_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"];
+const EXPECTED_GEMINI_MODELS = [...GEMINI_ALLOWED_MODELS];
 let geminiModelLogPromise: Promise<void> | null = null;
 
 export type GeminiChatRole = "user" | "assistant";
