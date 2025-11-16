@@ -95,15 +95,37 @@ function parseMessages(value: unknown): ValidationResult {
 function extractGeminiApiKey(
   request: Request,
   body: Record<string, unknown>
-): string | null {
-  const headerKey = normalizeApiKey(request.headers.get("x-provider-api-key"));
-  if (headerKey) {
-    return headerKey;
+): string | undefined {
+  const directHeaderKey = getHeaderValue(request, [
+    "X-Gemini-Api-Key",
+    "X-Google-Api-Key",
+  ]);
+  if (directHeaderKey) {
+    return directHeaderKey;
+  }
+
+  const providerHeaderKey = normalizeApiKey(
+    request.headers.get("x-provider-api-key")
+  );
+  if (providerHeaderKey) {
+    return providerHeaderKey;
+  }
+
+  const providerKey = findFirstKey(body, [
+    "gemini",
+    "geminiApiKey",
+    "gemini_api_key",
+    "google",
+    "googleApiKey",
+    "google_api_key",
+  ]);
+  if (providerKey) {
+    return providerKey;
   }
 
   const providerKeys = body.providerKeys;
   if (isRecord(providerKeys)) {
-    const providerKey = findFirstKey(providerKeys, [
+    const nestedProviderKey = findFirstKey(providerKeys, [
       "gemini",
       "geminiApiKey",
       "gemini_api_key",
@@ -111,8 +133,23 @@ function extractGeminiApiKey(
       "googleApiKey",
       "google_api_key",
     ]);
-    if (providerKey) {
-      return providerKey;
+    if (nestedProviderKey) {
+      return nestedProviderKey;
+    }
+  }
+
+  const provider = body.provider;
+  if (isRecord(provider)) {
+    const nestedProviderKey = findFirstKey(provider, [
+      "gemini",
+      "geminiApiKey",
+      "gemini_api_key",
+      "google",
+      "googleApiKey",
+      "google_api_key",
+    ]);
+    if (nestedProviderKey) {
+      return nestedProviderKey;
     }
   }
 
@@ -124,13 +161,13 @@ function extractGeminiApiKey(
   );
 }
 
-function normalizeApiKey(value: unknown): string | null {
+function normalizeApiKey(value: unknown): string | undefined {
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
-  return null;
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,7 +177,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function findFirstKey(
   source: Record<string, unknown>,
   keys: string[]
-): string | null {
+): string | undefined {
   for (const key of keys) {
     if (key in source) {
       const value = normalizeApiKey(source[key]);
@@ -149,5 +186,5 @@ function findFirstKey(
       }
     }
   }
-  return null;
+  return undefined;
 }
