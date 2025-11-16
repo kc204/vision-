@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { encodeFiles } from "@/lib/encodeFiles";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
+import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 
 type LoopAssistantMessage = {
   role: "user" | "assistant";
@@ -45,6 +46,7 @@ export default function LoopAssistantPage() {
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
   const [bootstrapRetryToken, setBootstrapRetryToken] = useState(0);
   const lastBootstrapAttemptRef = useRef<number | null>(null);
+  const [providerApiKey, setProviderApiKey] = useState("");
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -79,9 +81,14 @@ export default function LoopAssistantPage() {
       setMessages([]);
 
       try {
+        const headers: HeadersInit = { "Content-Type": "application/json" };
+        if (providerApiKey.trim().length > 0) {
+          headers["x-provider-api-key"] = providerApiKey.trim();
+        }
+
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -119,7 +126,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, [bootstrapRetryToken, messages.length]);
+  }, [bootstrapRetryToken, messages.length, providerApiKey]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -146,9 +153,14 @@ export default function LoopAssistantPage() {
     try {
       const encodedImages = await encodeFiles(files);
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (providerApiKey.trim().length > 0) {
+        headers["x-provider-api-key"] = providerApiKey.trim();
+      }
+
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,
@@ -248,6 +260,13 @@ export default function LoopAssistantPage() {
             onFilesChange={setFiles}
             label="Reference images (optional)"
             description="Drop in PNG, JPG, or WEBP frames that inform the loop&apos;s tone and composition."
+          />
+
+          <ProviderApiKeyInput
+            value={providerApiKey}
+            onChange={setProviderApiKey}
+            description="Optional: paste your Gemini key to run assistant calls with personal credentials."
+            helperText="Keys live only in this tab and are forwarded via the x-provider-api-key header."
           />
 
           <ServerCredentialNotice

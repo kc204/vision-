@@ -7,6 +7,7 @@ import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
+import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -149,6 +150,7 @@ export default function ImageBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
   const [useSampleSeed, setUseSampleSeed] = useState(false);
+  const [providerApiKey, setProviderApiKey] = useState("");
 
   useEffect(() => {
     if (useSampleSeed) {
@@ -264,9 +266,14 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (providerApiKey.trim().length > 0) {
+        headers["x-provider-api-key"] = providerApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
@@ -478,6 +485,13 @@ export default function ImageBuilderPage() {
             />
           </div>
         </div>
+
+        <ProviderApiKeyInput
+          value={providerApiKey}
+          onChange={setProviderApiKey}
+          description="Optional: route this session through your own Gemini image key."
+          helperText="Provided keys live only in this browser session and are forwarded via x-provider-api-key."
+        />
 
         <ServerCredentialNotice
           description="Director Core uses managed credentials for Gemini image and chat calls."

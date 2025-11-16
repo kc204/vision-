@@ -7,6 +7,7 @@ import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
+import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
   DirectorCoreResult,
   DirectorMediaAsset,
@@ -101,6 +102,7 @@ export default function LoopBuilderPage() {
   const [loopMediaAssets, setLoopMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [loopSummary, setLoopSummary] = useState<LoopSummary | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
+  const [providerApiKey, setProviderApiKey] = useState("");
 
   useEffect(() => {
     if (useSampleLoop) {
@@ -195,9 +197,14 @@ export default function LoopBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (providerApiKey.trim().length > 0) {
+        headers["x-provider-api-key"] = providerApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
@@ -319,6 +326,13 @@ export default function LoopBuilderPage() {
             </span>
           </label>
         </div>
+
+        <ProviderApiKeyInput
+          value={providerApiKey}
+          onChange={setProviderApiKey}
+          description="Optional: paste a Gemini key to run this loop builder against your own quota."
+          helperText="Keys never leave this browser except as an x-provider-api-key header on Director requests."
+        />
 
         <ServerCredentialNotice
           description="Loop synthesis routes through the server's Nano Banana access."
