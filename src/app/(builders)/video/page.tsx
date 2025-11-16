@@ -8,6 +8,7 @@ import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
+import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -162,6 +163,7 @@ export default function VideoBuilderPage() {
     null
   );
   const [useSamplePlan, setUseSamplePlan] = useState(false);
+  const [providerApiKey, setProviderApiKey] = useState("");
 
   useEffect(() => {
     const activePlan = useSamplePlan ? SAMPLE_VIDEO_PLAN : INITIAL_FORM_STATE;
@@ -333,9 +335,14 @@ export default function VideoBuilderPage() {
         images: images.length ? images : undefined,
       };
 
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (providerApiKey.trim().length > 0) {
+        headers["x-provider-api-key"] = providerApiKey.trim();
+      }
+
       const response = await fetch("/api/director", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestPayload),
       });
 
@@ -496,6 +503,13 @@ export default function VideoBuilderPage() {
           label="Vision Seed images"
           description="Drop PNG, JPG, or WEBP frames to ground your plan."
           maxFiles={6}
+        />
+
+        <ProviderApiKeyInput
+          value={providerApiKey}
+          onChange={setProviderApiKey}
+          description="Optional: override the managed key with your own Gemini or Veo access for this browser session."
+          helperText="If provided, the key is sent with each Director Core request via x-provider-api-key."
         />
 
         <ServerCredentialNotice
