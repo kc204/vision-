@@ -76,30 +76,6 @@ export type GeneratedVideo = {
   frames?: string[];
 };
 
-export type DirectorMediaFrame = {
-  url?: string | null;
-  base64?: string | null;
-  mimeType?: string | null;
-  caption?: string | null;
-};
-
-export type DirectorMediaAsset = {
-  id?: string | number | null;
-  kind?: "image" | "video";
-  url?: string | null;
-  base64?: string | null;
-  mimeType?: string | null;
-  posterUrl?: string | null;
-  posterBase64?: string | null;
-  thumbnailUrl?: string | null;
-  thumbnailBase64?: string | null;
-  frames?: DirectorMediaFrame[];
-  caption?: string | null;
-  description?: string | null;
-  durationSeconds?: number | null;
-  frameRate?: number | null;
-};
-
 export type LoopSequenceResult = {
   frames: GeneratedImage[];
   loopLength?: number | null;

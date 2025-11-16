@@ -13,6 +13,8 @@
     "src/lib/imagePromptParser.test.ts",
     "src/lib/directorClient.ts",
     "src/lib/directorResponseAdapter.test.ts",
-    "src/lib/directorTypes.ts"
+    "src/lib/directorTypes.ts",
+    "src/app/api/director/route.ts",
+    "src/app/api/director/route.test.ts"
   ]
 }
