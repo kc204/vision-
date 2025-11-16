@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
-import {
-  callDirectorCore,
-  mapDirectorCoreSuccess,
-  type DirectorProviderCredentials,
-} from "@/lib/directorClient";
+import * as directorClient from "@/lib/directorClient";
+import type { DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
   DirectorRequest,
   ImagePromptPayload,
@@ -15,8 +12,8 @@ import type {
 
 type UnknownRecord = Record<string, unknown>;
 
-type ValidationResult =
-  | { ok: true; value: DirectorRequest }
+type ValidationResult<T> =
+  | { ok: true; value: T }
   | { ok: false; error: string };
 
 type ProviderKeyBundle = {
@@ -24,10 +21,6 @@ type ProviderKeyBundle = {
   veoApiKey?: string;
   nanoBananaApiKey?: string;
 };
-
-const REQUIRE_AUTHENTICATED_SESSION = parseEnvBoolean(
-  process.env.DIRECTOR_CORE_REQUIRE_API_KEY ?? "true"
-);
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -65,8 +58,10 @@ export async function POST(request: Request) {
     credentials.nanoBanana = { apiKey: providerKeys.nanoBananaApiKey };
   }
 
+  const requireClientKey = shouldRequireClientApiKey(validation.value.mode);
+
   if (
-    REQUIRE_AUTHENTICATED_SESSION &&
+    requireClientKey &&
     !hasRequiredProviderKey(validation.value.mode, providerKeys)
   ) {
     return NextResponse.json(
@@ -76,7 +71,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await callDirectorCore(validation.value, credentials);
+    const result = await directorClient.callDirectorCore(
+      validation.value,
+      credentials
+    );
     if (isDirectorCoreError(result)) {
       const status = result.status ?? 502;
       return NextResponse.json(
@@ -89,7 +87,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const responsePayload = mapDirectorCoreSuccess(result);
+    const responsePayload = directorClient.mapDirectorCoreSuccess(result);
     return NextResponse.json(responsePayload);
   } catch (error) {
     console.error("Director Core invocation failed", error);
@@ -254,6 +252,15 @@ function normalizeApiKey(value: unknown): string | undefined {
   return undefined;
 }
 
+function shouldRequireClientApiKey(mode: DirectorRequest["mode"]): boolean {
+  const explicit = process.env.DIRECTOR_CORE_REQUIRE_API_KEY;
+  if (explicit !== undefined) {
+    return parseEnvBoolean(explicit);
+  }
+
+  return !hasServerCredentialForMode(mode);
+}
+
 function hasRequiredProviderKey(
   mode: DirectorRequest["mode"],
   providerKeys: ProviderKeyBundle
@@ -261,22 +268,25 @@ function hasRequiredProviderKey(
   switch (mode) {
     case "loop_sequence":
       return Boolean(
-        providerKeys.nanoBananaApiKey ?? getEnvApiKey(process.env.NANO_BANANA_API_KEY)
+        providerKeys.nanoBananaApiKey ?? getServerNanoBananaApiKey()
       );
     case "video_plan":
-      return Boolean(
-        providerKeys.veoApiKey ??
-          getEnvApiKey(process.env.VEO_API_KEY) ??
-          getEnvApiKey(process.env.GEMINI_API_KEY) ??
-          getEnvApiKey(process.env.GOOGLE_API_KEY)
-      );
+      return Boolean(providerKeys.veoApiKey ?? getServerVeoApiKey());
     case "image_prompt":
     default:
-      return Boolean(
-        providerKeys.geminiApiKey ??
-          getEnvApiKey(process.env.GEMINI_API_KEY) ??
-          getEnvApiKey(process.env.GOOGLE_API_KEY)
-      );
+      return Boolean(providerKeys.geminiApiKey ?? getServerGeminiApiKey());
+  }
+}
+
+function hasServerCredentialForMode(mode: DirectorRequest["mode"]): boolean {
+  switch (mode) {
+    case "loop_sequence":
+      return Boolean(getServerNanoBananaApiKey());
+    case "video_plan":
+      return Boolean(getServerVeoApiKey());
+    case "image_prompt":
+    default:
+      return Boolean(getServerGeminiApiKey());
   }
 }
 
@@ -290,6 +300,23 @@ function getMissingKeyMessage(mode: DirectorRequest["mode"]): string {
     default:
       return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
   }
+}
+
+function getServerGeminiApiKey(): string | undefined {
+  return (
+    getEnvApiKey(process.env.GEMINI_API_KEY) ??
+    getEnvApiKey(process.env.GOOGLE_API_KEY)
+  );
+}
+
+function getServerVeoApiKey(): string | undefined {
+  return (
+    getEnvApiKey(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
+  );
+}
+
+function getServerNanoBananaApiKey(): string | undefined {
+  return getEnvApiKey(process.env.NANO_BANANA_API_KEY);
 }
 
 function getEnvApiKey(value: string | undefined): string | undefined {
@@ -307,7 +334,9 @@ function isDirectorCoreError(result: DirectorCoreResult): result is Extract<
   return result.success === false;
 }
 
-function validateDirectorRequest(payload: unknown): ValidationResult {
+function validateDirectorRequest(
+  payload: unknown
+): ValidationResult<DirectorRequest> {
   if (!isRecord(payload)) {
     return { ok: false, error: "Body must be an object" };
   }
@@ -361,7 +390,9 @@ function validateDirectorRequest(payload: unknown): ValidationResult {
   }
 }
 
-function parseImagePromptPayload(value: unknown): ValidationResult {
+function parseImagePromptPayload(
+  value: unknown
+): ValidationResult<ImagePromptPayload> {
   if (!isRecord(value)) {
     return { ok: false, error: "payload must be an object" };
   }
@@ -408,11 +439,9 @@ function getHeaderValue(request: Request, names: string[]): string | undefined {
   return undefined;
 }
 
-function hasEnvCredential(value: string | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function parseVideoPlanPayload(value: unknown): ValidationResult {
+function parseVideoPlanPayload(
+  value: unknown
+): ValidationResult<VideoPlanPayload> {
   if (!isRecord(value)) {
     return { ok: false, error: "payload must be an object" };
   }
@@ -483,7 +512,9 @@ function parseVideoPlanPayload(value: unknown): ValidationResult {
   return { ok: true, value: payload };
 }
 
-function parseLoopSequencePayload(value: unknown): ValidationResult {
+function parseLoopSequencePayload(
+  value: unknown
+): ValidationResult<LoopSequencePayload> {
   if (!isRecord(value)) {
     return { ok: false, error: "payload must be an object" };
   }

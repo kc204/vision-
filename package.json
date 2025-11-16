@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsc --project tsconfig.test.json && node --test .tmp-test/*.test.js"
+    "test": "tsc --project tsconfig.test.json && node --test -r ./test/register-paths.cjs $(find .tmp-test -name '*.test.js')"
   },
   "dependencies": {
     "next": "14.1.0",

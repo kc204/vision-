@@ -68,10 +68,7 @@ async function callGeminiImageProvider(
   req: Extract<DirectorRequest, { mode: "image_prompt" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey =
-    credentials?.gemini?.apiKey ??
-    getNonEmptyString(process.env.GEMINI_API_KEY) ??
-    getNonEmptyString(process.env.GOOGLE_API_KEY);
+  const apiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
 
   if (!apiKey) {
     return {
@@ -181,11 +178,7 @@ async function callVeoVideoProvider(
   req: Extract<DirectorRequest, { mode: "video_plan" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey =
-    credentials?.veo?.apiKey ??
-    getNonEmptyString(process.env.VEO_API_KEY) ??
-    getNonEmptyString(process.env.GEMINI_API_KEY) ??
-    getNonEmptyString(process.env.GOOGLE_API_KEY);
+  const apiKey = credentials?.veo?.apiKey ?? getServerVeoApiKey();
 
   if (!apiKey) {
     return {
@@ -722,6 +715,19 @@ function isLikelyUrl(value: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getServerGeminiApiKey(): string | undefined {
+  return (
+    getNonEmptyString(process.env.GEMINI_API_KEY) ??
+    getNonEmptyString(process.env.GOOGLE_API_KEY)
+  );
+}
+
+function getServerVeoApiKey(): string | undefined {
+  return (
+    getNonEmptyString(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
+  );
 }
 
 function getNonEmptyString(value: unknown): string | undefined {
