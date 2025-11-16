@@ -43,7 +43,7 @@ const credentialFields: Array<{
 
 export function ProviderCredentialPanel({
   title = "Provider credentials",
-  description = "Store API keys locally to call each provider without Google OAuth.",
+  description = "Store API keys locally so each provider call can use your credentials.",
 }: ProviderCredentialPanelProps) {
   const credentials = useProviderCredentials();
   const panelId = useId();
