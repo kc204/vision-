@@ -5,7 +5,7 @@ const GEMINI_API_URL =
 
 const GEMINI_CHAT_MODELS = parseModelList(
   process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
-  ["gemini-1.5-pro-latest"]
+  ["gemini-2.5-pro"]
 );
 
 export type GeminiChatRole = "user" | "assistant";
