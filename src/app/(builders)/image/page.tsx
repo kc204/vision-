@@ -6,8 +6,7 @@ import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
-import { useProviderCredentials } from "@/hooks/useProviderCredentials";
+import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -150,7 +149,6 @@ export default function ImageBuilderPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
   const [useSampleSeed, setUseSampleSeed] = useState(false);
-  const { geminiApiKey } = useProviderCredentials();
 
   useEffect(() => {
     if (useSampleSeed) {
@@ -266,14 +264,9 @@ export default function ImageBuilderPage() {
         images: images.length ? images : undefined,
       };
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (geminiApiKey?.trim()) {
-        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
-      }
-
       const response = await fetch("/api/director", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
       });
 
@@ -480,7 +473,10 @@ export default function ImageBuilderPage() {
           </div>
         </div>
 
-        <ProviderCredentialPanel />
+        <ServerCredentialNotice
+          description="Director Core uses managed credentials for Gemini image and chat calls."
+          helperText="No Google AI Studio key or browser storage is required."
+        />
 
         <button
           type="submit"

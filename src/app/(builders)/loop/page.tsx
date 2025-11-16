@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/copy-button";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
+import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import type {
   DirectorCoreResult,
   DirectorMediaAsset,
@@ -24,8 +25,6 @@ import {
   shotSizes,
   type VisualOption,
 } from "@/lib/visualOptions";
-import { useProviderApiKey } from "@/hooks/useProviderApiKey";
-import { useProviderCredentials } from "@/hooks/useProviderCredentials";
 
 type LoopSelectedOptions = {
   cameraAngles: string[];
@@ -102,8 +101,6 @@ export default function LoopBuilderPage() {
   const [loopMediaAssets, setLoopMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [loopSummary, setLoopSummary] = useState<LoopSummary | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
-  const { providerApiKey, setProviderApiKey } = useProviderApiKey();
-  const { nanoBananaApiKey } = useProviderCredentials();
 
   useEffect(() => {
     if (useSampleLoop) {
@@ -198,18 +195,9 @@ export default function LoopBuilderPage() {
         images: images.length ? images : undefined,
       };
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      const sessionProviderKey = providerApiKey.trim();
-      if (sessionProviderKey) {
-        headers["x-provider-api-key"] = sessionProviderKey;
-      }
-      if (nanoBananaApiKey?.trim()) {
-        headers["X-Nano-Banana-Api-Key"] = nanoBananaApiKey.trim();
-      }
-
       const response = await fetch("/api/director", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
       });
 
@@ -332,27 +320,10 @@ export default function LoopBuilderPage() {
           </label>
         </div>
 
-        <div className="space-y-2">
-          <label
-            className="text-sm font-semibold text-slate-200"
-            htmlFor="loop-provider-api-key"
-          >
-            Provider API key (optional)
-          </label>
-          <input
-            id="loop-provider-api-key"
-            type="text"
-            value={providerApiKey}
-            onChange={(event) => setProviderApiKey(event.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Paste a provider key for this session"
-            className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-          />
-          <p className="text-xs text-slate-400">
-            Stored per session and reused for subsequent requests.
-          </p>
-        </div>
+        <ServerCredentialNotice
+          description="Loop synthesis routes through the server's Nano Banana access."
+          helperText="Predictive loop cycles are authenticated automatically—no provider keys to manage."
+        />
 
         <ImageDropzone
           files={files}

@@ -5,8 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { encodeFiles } from "@/lib/encodeFiles";
-import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
-import { useProviderCredentials } from "@/hooks/useProviderCredentials";
+import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 
 type LoopAssistantMessage = {
   role: "user" | "assistant";
@@ -44,23 +43,8 @@ export default function LoopAssistantPage() {
   const [isRequesting, setIsRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useSampleAssistant, setUseSampleAssistant] = useState(false);
-  const { geminiApiKey } = useProviderCredentials();
   const [bootstrapRetryToken, setBootstrapRetryToken] = useState(0);
-  const lastBootstrapAttemptRef = useRef<string | null>(null);
-  const trimmedGeminiApiKey = geminiApiKey?.trim() ?? "";
-  const [debouncedGeminiApiKey, setDebouncedGeminiApiKey] = useState(
-    trimmedGeminiApiKey
-  );
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setDebouncedGeminiApiKey(trimmedGeminiApiKey);
-    }, 400);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [trimmedGeminiApiKey]);
+  const lastBootstrapAttemptRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (useSampleAssistant) {
@@ -82,7 +66,7 @@ export default function LoopAssistantPage() {
 
     let isActive = true;
 
-    const attemptKey = `${debouncedGeminiApiKey}|${bootstrapRetryToken}`;
+    const attemptKey = bootstrapRetryToken;
     if (lastBootstrapAttemptRef.current === attemptKey) {
       return;
     }
@@ -95,14 +79,9 @@ export default function LoopAssistantPage() {
       setMessages([]);
 
       try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (geminiApiKey?.trim()) {
-          headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
-        }
-
         const response = await fetch("/api/loop-assistant", {
           method: "POST",
-          headers,
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ history: [] as LoopAssistantHistoryEntry[] }),
         });
 
@@ -140,7 +119,7 @@ export default function LoopAssistantPage() {
     return () => {
       isActive = false;
     };
-  }, [debouncedGeminiApiKey, bootstrapRetryToken, messages.length]);
+  }, [bootstrapRetryToken, messages.length]);
 
   const storybeat = useMemo(() => parseLatestStorybeat(messages), [messages]);
 
@@ -167,14 +146,9 @@ export default function LoopAssistantPage() {
     try {
       const encodedImages = await encodeFiles(files);
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (geminiApiKey?.trim()) {
-        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
-      }
-
       const response = await fetch("/api/loop-assistant", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           history: historyForRequest.map<LoopAssistantHistoryEntry>((entry) => ({
             role: entry.role,
@@ -276,7 +250,10 @@ export default function LoopAssistantPage() {
             description="Drop in PNG, JPG, or WEBP frames that inform the loop&apos;s tone and composition."
           />
 
-          <ProviderCredentialPanel description="Loop assistant prompts Gemini chat on your behalf." />
+          <ServerCredentialNotice
+            description="Loop assistant runs through Director Core's managed Gemini access."
+            helperText="Chat freely without pasting keys or signing in."
+          />
 
           <div className="space-y-4">
             <div className="max-h-[28rem] space-y-4 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4">

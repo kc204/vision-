@@ -7,8 +7,7 @@ import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
-import { ProviderCredentialPanel } from "@/components/ProviderCredentialPanel";
-import { useProviderCredentials } from "@/hooks/useProviderCredentials";
+import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -163,7 +162,6 @@ export default function VideoBuilderPage() {
     null
   );
   const [useSamplePlan, setUseSamplePlan] = useState(false);
-  const { geminiApiKey, veoApiKey } = useProviderCredentials();
 
   useEffect(() => {
     const activePlan = useSamplePlan ? SAMPLE_VIDEO_PLAN : INITIAL_FORM_STATE;
@@ -335,17 +333,9 @@ export default function VideoBuilderPage() {
         images: images.length ? images : undefined,
       };
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (geminiApiKey?.trim()) {
-        headers["X-Gemini-Api-Key"] = geminiApiKey.trim();
-      }
-      if (veoApiKey?.trim()) {
-        headers["X-Veo-Api-Key"] = veoApiKey.trim();
-      }
-
       const response = await fetch("/api/director", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
       });
 
@@ -502,7 +492,10 @@ export default function VideoBuilderPage() {
           maxFiles={6}
         />
 
-        <ProviderCredentialPanel />
+        <ServerCredentialNotice
+          description="Director Core keeps Veo-capable Google access configured on the server."
+          helperText="You can focus on planning—no local API keys are needed."
+        />
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-slate-200">
