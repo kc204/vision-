@@ -20,7 +20,7 @@ const NANO_BANANA_API_URL =
 
 const GEMINI_IMAGE_MODELS = parseModelList(
   process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
-  ["gemini-1.5-flash-latest"]
+  ["gemini-2.5-flash"]
 );
 const VEO_VIDEO_MODELS = parseModelList(
   process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
