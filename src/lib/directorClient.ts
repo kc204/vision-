@@ -1,5 +1,10 @@
-import { enforceAllowedGeminiModels, parseModelList } from "./googleModels";
+import {
+  assertNoLatestAliases,
+  enforceAllowedGeminiModels,
+  parseModelList,
+} from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
+import { logGenerativeClientTarget, resolveGeminiApiBaseUrl } from "./geminiApiUrl";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -12,18 +17,24 @@ import type {
   LoopSequenceResult,
 } from "./directorTypes";
 
-const GEMINI_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
-const VEO_API_URL = process.env.VEO_API_URL ?? GEMINI_API_URL;
+const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
+const VEO_API_URL = resolveGeminiApiBaseUrl(process.env.VEO_API_URL ?? GEMINI_API_URL);
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
 const DEFAULT_GEMINI_IMAGE_MODELS = ["gemini-2.5-flash"] as const;
+const RAW_GEMINI_IMAGE_MODELS = parseModelList(
+  process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
+  [...DEFAULT_GEMINI_IMAGE_MODELS]
+);
+
+assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
+  context: "image",
+  envVar: "GEMINI_IMAGE_MODELS",
+});
+
 const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
-  parseModelList(
-    process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
-    [...DEFAULT_GEMINI_IMAGE_MODELS]
-  ),
+  RAW_GEMINI_IMAGE_MODELS,
   {
     fallback: DEFAULT_GEMINI_IMAGE_MODELS,
     context: "image",
@@ -34,6 +45,9 @@ const VEO_VIDEO_MODELS = parseModelList(
   process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
   ["veo-3.1"]
 );
+
+let geminiImageClientLogged = false;
+let veoClientLogged = false;
 
 export type DirectorProviderCredentials = {
   gemini?: {
@@ -97,6 +111,8 @@ async function callGeminiImageProvider(
       status: 500,
     };
   }
+
+  logGeminiImageClientConfiguration(model);
 
   const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
 
@@ -207,6 +223,8 @@ async function callVeoVideoProvider(
       status: 500,
     };
   }
+
+  logVeoClientConfiguration(model);
 
   const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
   const headers: Record<string, string> = {
@@ -745,6 +763,34 @@ function getNonEmptyString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function logGeminiImageClientConfiguration(model: string) {
+  if (geminiImageClientLogged) {
+    return;
+  }
+
+  geminiImageClientLogged = true;
+  logGenerativeClientTarget({
+    provider: "Gemini",
+    context: "director image",
+    baseUrl: GEMINI_API_URL,
+    model,
+  });
+}
+
+function logVeoClientConfiguration(model: string) {
+  if (veoClientLogged) {
+    return;
+  }
+
+  veoClientLogged = true;
+  logGenerativeClientTarget({
+    provider: "Veo",
+    context: "director video",
+    baseUrl: VEO_API_URL,
+    model,
+  });
 }
 
 function extractErrorMessage(payload: unknown, fallback: string): string {
