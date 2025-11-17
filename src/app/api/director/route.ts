@@ -87,8 +87,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const responsePayload = directorClient.mapDirectorCoreSuccess(result);
-    return NextResponse.json(responsePayload);
+    const payload = directorClient.mapDirectorCoreSuccess(result);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Director Core invocation failed", error);
 

@@ -10,10 +10,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
-  DirectorCoreResult,
-  DirectorCoreSuccess,
   DirectorMediaAsset,
   DirectorRequest,
+  DirectorResponse,
+  DirectorSuccessResponse,
   VideoPlanPayload,
   VideoPlanResponse,
 } from "@/lib/directorTypes";
@@ -347,7 +347,7 @@ export default function VideoBuilderPage() {
       });
 
       const rawResponseJson = (await response.json().catch(() => null)) as
-        | DirectorCoreResult
+        | DirectorResponse
         | { error?: string }
         | null;
 
@@ -364,10 +364,13 @@ export default function VideoBuilderPage() {
         throw new Error("Empty response from director");
       }
 
-      const responseJson: DirectorCoreResult = rawResponseJson;
+      const responseJson: DirectorResponse = rawResponseJson;
 
       if (responseJson.success !== true) {
-        throw new Error("Director Core returned an unexpected payload");
+        throw new Error(
+          (responseJson as { error?: string }).error ??
+            "Director Core returned an unexpected payload"
+        );
       }
 
       if (responseJson.mode !== "video_plan") {
@@ -383,7 +386,7 @@ export default function VideoBuilderPage() {
 
       setRawPlanText(rawText ?? JSON.stringify(plan, null, 2));
       setResult(plan);
-      setMediaAssets(mapVideosToMediaAssets(responseJson));
+      setMediaAssets(responseJson.media ?? []);
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -804,7 +807,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-type VideoPlanSuccess = Extract<DirectorCoreSuccess, { mode: "video_plan" }>;
+type VideoPlanSuccess = Extract<DirectorSuccessResponse, { mode: "video_plan" }>;
 
 function extractVideoPlan(result: VideoPlanSuccess): {
   plan: VideoPlanResponse | null;
@@ -812,8 +815,8 @@ function extractVideoPlan(result: VideoPlanSuccess): {
 } {
   const candidates: unknown[] = [];
 
-  if (result.storyboard !== undefined) {
-    candidates.push(result.storyboard);
+  if (result.result !== undefined && result.result !== null) {
+    candidates.push(result.result);
   }
 
   if (result.metadata && typeof result.metadata === "object") {
@@ -832,6 +835,13 @@ function extractVideoPlan(result: VideoPlanSuccess): {
       if (metadata[key] !== undefined) {
         candidates.push(metadata[key]);
       }
+    }
+  }
+
+  const textCandidates = [result.text, result.fallbackText];
+  for (const text of textCandidates) {
+    if (typeof text === "string" && text.trim().length) {
+      candidates.push(text);
     }
   }
 
@@ -899,55 +909,4 @@ function parseVideoPlanCandidate(candidate: unknown): VideoPlanResponse | null {
     scenes: scenesCandidate as VideoPlanResponse["scenes"],
     thumbnailConcept: thumbnailConcept ?? "Thumbnail concept pending",
   };
-}
-
-function mapVideosToMediaAssets(result: VideoPlanSuccess): DirectorMediaAsset[] {
-  return (result.videos ?? []).map((video, index) => {
-    const primarySource = splitMediaValue(video.url);
-    const fallbackSource = splitMediaValue(video.base64);
-    const posterSource = splitMediaValue(video.posterImage);
-    const frames = (video.frames ?? []).map((frame, frameIndex) => {
-      const frameSource = splitMediaValue(frame);
-      return {
-        url: frameSource.url ?? undefined,
-        base64: frameSource.base64 ?? undefined,
-        mimeType: frameSource.mimeType ?? undefined,
-        caption: `Frame ${frameIndex + 1}`,
-      };
-    });
-
-    return {
-      id: video.url ?? `video-${index}`,
-      kind: "video",
-      url: primarySource.url ?? fallbackSource.url ?? undefined,
-      base64: primarySource.base64 ?? fallbackSource.base64 ?? undefined,
-      mimeType: video.mimeType ?? primarySource.mimeType ?? fallbackSource.mimeType,
-      posterUrl: posterSource.url ?? undefined,
-      posterBase64: posterSource.base64 ?? undefined,
-      frames,
-      durationSeconds: video.durationSeconds ?? null,
-      frameRate: video.frameRate ?? null,
-    } satisfies DirectorMediaAsset;
-  });
-}
-
-function splitMediaValue(value?: string | null): {
-  url?: string;
-  base64?: string;
-  mimeType?: string;
-} {
-  if (!value) {
-    return {};
-  }
-
-  const dataUrlMatch = /^data:([^;]+);base64,/i.exec(value);
-  if (dataUrlMatch) {
-    return { url: value, mimeType: dataUrlMatch[1] };
-  }
-
-  if (/^(https?:|blob:)/i.test(value)) {
-    return { url: value };
-  }
-
-  return { base64: value };
 }

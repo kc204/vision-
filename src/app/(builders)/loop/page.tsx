@@ -9,9 +9,10 @@ import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
-  DirectorCoreResult,
   DirectorMediaAsset,
   DirectorRequest,
+  DirectorResponse,
+  DirectorSuccessResponse,
   LoopCycleJSON,
   LoopSequencePayload,
   LoopSequenceResult,
@@ -208,26 +209,30 @@ export default function LoopBuilderPage() {
         body: JSON.stringify(requestPayload),
       });
 
-      const result = (await response.json().catch(() => null)) as
-        | DirectorCoreResult
+      const rawResponseJson = (await response.json().catch(() => null)) as
+        | DirectorResponse
         | null;
 
-      if (!result) {
+      if (
+        !rawResponseJson ||
+        typeof rawResponseJson !== "object" ||
+        !("success" in rawResponseJson)
+      ) {
         throw new Error("Director Core returned an empty response");
       }
 
-      if (!result.success) {
-        throw new Error(formatDirectorError(result));
+      if (rawResponseJson.success !== true) {
+        throw new Error(formatDirectorError(rawResponseJson));
       }
 
-      if (!isLoopSequenceSuccess(result)) {
+      if (!isLoopSequenceSuccess(rawResponseJson)) {
         throw new Error("Director Core responded with an unexpected payload");
       }
 
-      const loopResult = result.loop ?? null;
+      const loopResult = getLoopSequenceResult(rawResponseJson);
 
       if (!loopResult) {
-        const fallbackCycles = extractFallbackLoopCycles(result);
+        const fallbackCycles = extractFallbackLoopCycles(rawResponseJson);
         if (fallbackCycles?.length) {
           setCycles(fallbackCycles);
           return;
@@ -238,7 +243,7 @@ export default function LoopBuilderPage() {
 
       const loopCycles = extractLoopCyclesFromLoop(loopResult);
       setCycles(loopCycles.length ? loopCycles : null);
-      setLoopMediaAssets(convertFramesToMediaAssets(loopResult.frames));
+      setLoopMediaAssets(rawResponseJson.media ?? []);
       setLoopSummary(extractLoopSummary(loopResult));
     } catch (submissionError) {
       console.error(submissionError);
@@ -623,17 +628,34 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 type LoopSequenceSuccess = Extract<
-  DirectorCoreResult,
-  { success: true; mode: "loop_sequence" }
+  DirectorSuccessResponse,
+  { mode: "loop_sequence" }
 >;
 
-type DirectorCoreErrorResult = Extract<DirectorCoreResult, { success: false }>;
+type DirectorErrorResponse = Extract<DirectorResponse, { success: false }>;
 
-function isLoopSequenceSuccess(result: DirectorCoreResult): result is LoopSequenceSuccess {
+function isLoopSequenceSuccess(
+  result: DirectorResponse
+): result is LoopSequenceSuccess {
   return result.success === true && result.mode === "loop_sequence";
 }
 
-function formatDirectorError(result: DirectorCoreErrorResult): string {
+function getLoopSequenceResult(
+  result: LoopSequenceSuccess
+): LoopSequenceResult | null {
+  const candidate = result.result;
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  if (!Array.isArray((candidate as LoopSequenceResult).frames)) {
+    return null;
+  }
+
+  return candidate as LoopSequenceResult;
+}
+
+function formatDirectorError(result: DirectorErrorResponse): string {
   const details: string[] = [result.error];
   if (result.provider) {
     details.push(`provider: ${result.provider}`);
@@ -718,38 +740,6 @@ function parseLoopCyclesFromFrames(frames: LoopSequenceResult["frames"]): LoopCy
   return cycles;
 }
 
-function convertFramesToMediaAssets(
-  frames: LoopSequenceResult["frames"]
-): DirectorMediaAsset[] {
-  return frames.map((frame, index) => {
-    const trimmedData = typeof frame.data === "string" ? frame.data.trim() : "";
-    const derivedCycles = frame.altText ? normalizeLoopCycleEntry(frame.altText) : [];
-    const representativeCycle = derivedCycles[0];
-
-    const asset: DirectorMediaAsset = {
-      id: `loop-frame-${index}`,
-      kind: "image",
-      mimeType: frame.mimeType,
-      caption:
-        representativeCycle?.segment_title ??
-        (frame.altText?.trim() || `Loop frame ${index + 1}`),
-      description: representativeCycle?.scene_description,
-    };
-
-    if (!trimmedData) {
-      return asset;
-    }
-
-    if (isLikelyUrl(trimmedData)) {
-      asset.url = trimmedData;
-    } else {
-      asset.base64 = trimmedData;
-    }
-
-    return asset;
-  });
-}
-
 function extractFallbackLoopCycles(
   result: LoopSequenceSuccess
 ): LoopCycleJSON[] | null {
@@ -761,16 +751,22 @@ function extractFallbackLoopCycles(
 }
 
 function getLegacyLoopText(result: LoopSequenceSuccess): string | null {
-  const textCandidate = (result as { text?: unknown }).text;
-  if (typeof textCandidate === "string" && textCandidate.trim().length) {
-    return textCandidate;
+  const textCandidates = [result.text, result.fallbackText];
+  for (const candidate of textCandidates) {
+    if (typeof candidate === "string" && candidate.trim().length) {
+      return candidate;
+    }
   }
 
-  const metadata = result.loop?.metadata;
-  if (metadata && typeof metadata === "object") {
+  const loopMetadata = getLoopSequenceResult(result)?.metadata;
+  const metadata = loopMetadata && typeof loopMetadata === "object"
+    ? (loopMetadata as Record<string, unknown>)
+    : (isRecord(result.metadata) ? result.metadata : null);
+
+  if (metadata) {
     const keys = ["rawText", "raw_text", "text", "loop_json", "loopJson"];
     for (const key of keys) {
-      const value = (metadata as Record<string, unknown>)[key];
+      const value = metadata[key];
       if (typeof value === "string" && value.trim().length) {
         return value;
       }
@@ -905,8 +901,4 @@ function isLoopCycleJSON(value: unknown): value is LoopCycleJSON {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function isLikelyUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value) || value.startsWith("data:");
 }
