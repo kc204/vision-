@@ -9,10 +9,9 @@ import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
-  DirectorCoreResult,
-  DirectorCoreSuccess,
   DirectorMediaAsset,
   DirectorRequest,
+  DirectorResponse,
   ImagePromptPayload,
 } from "@/lib/directorTypes";
 import { encodeFiles } from "@/lib/encodeFiles";
@@ -278,7 +277,7 @@ export default function ImageBuilderPage() {
       });
 
       const rawResponseJson = (await response.json().catch(() => null)) as
-        | DirectorCoreResult
+        | DirectorResponse
         | { error?: string }
         | null;
 
@@ -295,17 +294,21 @@ export default function ImageBuilderPage() {
         throw new Error("Empty response from director");
       }
 
-      const responseJson: DirectorCoreResult = rawResponseJson;
+      const responseJson: DirectorResponse = rawResponseJson;
 
       if (responseJson.success !== true) {
-        throw new Error("Director Core returned an unexpected payload");
+        throw new Error(
+          (responseJson as { error?: string }).error ??
+            "Director Core returned an unexpected payload"
+        );
       }
 
       if (responseJson.mode !== "image_prompt") {
         throw new Error("Director Core returned non-image data");
       }
 
-      const promptText = responseJson.promptText ?? null;
+      const promptText =
+        responseJson.text ?? responseJson.fallbackText ?? null;
       let promptSections: PromptSections | null = null;
 
       if (promptText) {
@@ -315,7 +318,7 @@ export default function ImageBuilderPage() {
       setResult({
         sections: promptSections,
         fallbackText: promptText,
-        media: mapImagesToMediaAssets(responseJson),
+        media: responseJson.media ?? [],
       });
     } catch (submissionError) {
       console.error(submissionError);
@@ -584,31 +587,6 @@ function SeedSection({
       />
     </label>
   );
-}
-
-type ImagePromptSuccess = Extract<DirectorCoreSuccess, { mode: "image_prompt" }>;
-
-function mapImagesToMediaAssets(result: ImagePromptSuccess): DirectorMediaAsset[] {
-  return (result.images ?? []).map((image, index) => {
-    const { url, base64 } = normalizeMediaValue(image.data);
-    return {
-      id: image.altText ?? `image-${index}`,
-      kind: "image",
-      mimeType: image.mimeType,
-      url,
-      base64,
-      caption: image.altText ?? null,
-      description: image.altText ?? null,
-    } satisfies DirectorMediaAsset;
-  });
-}
-
-function normalizeMediaValue(value: string): { url?: string; base64?: string } {
-  if (/^(https?:|blob:)/i.test(value) || value.startsWith("data:")) {
-    return { url: value };
-  }
-
-  return { base64: value };
 }
 
 function OptionGrid({

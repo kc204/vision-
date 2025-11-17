@@ -847,7 +847,7 @@ export function mapDirectorCoreSuccess(
         provider: result.provider,
         text: null,
         fallbackText: null,
-        result: (result.loop.metadata as unknown) ?? null,
+        result: result.loop ?? null,
         media,
         metadata: result.loop.metadata ?? null,
       };

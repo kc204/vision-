@@ -114,5 +114,8 @@ test("mapDirectorCoreSuccess attaches loop frames", () => {
   assert.equal(response.media?.[0]?.frameRate, 12);
   assert.equal(response.media?.[0]?.durationSeconds, 4);
   assert.equal(response.media?.[0]?.frames?.[1]?.url, "https://cdn.example/frame.png");
-  assert.deepEqual(response.result, { tag: "loop" });
+  const loopResult = response.result as LoopSequenceResult | null;
+  assert.ok(loopResult);
+  assert.equal(loopResult?.frames.length, 2);
+  assert.equal(loopResult?.loopLength, 4);
 });
