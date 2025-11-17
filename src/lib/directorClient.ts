@@ -108,7 +108,7 @@ async function callGeminiImageProvider(
 
   const parts = buildUserParts(req.payload, req.images);
   const payload = {
-    systemInstruction: {
+    system_instruction: {
       role: "system",
       parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
     },
@@ -216,7 +216,7 @@ async function callVeoVideoProvider(
 
   const parts = buildVideoPlanParts(req.payload, req.images);
   const payload = {
-    systemInstruction: {
+    system_instruction: {
       role: "system",
       parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
     },

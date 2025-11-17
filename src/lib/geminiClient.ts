@@ -180,7 +180,7 @@ export async function callGeminiChat(
   }
 
   const payload = {
-    systemInstruction: {
+    system_instruction: {
       role: "system" as const,
       parts: [{ text: systemPrompt }],
     },
