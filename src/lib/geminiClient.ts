@@ -1,19 +1,27 @@
 import {
   GEMINI_ALLOWED_MODELS,
+  assertNoLatestAliases,
   enforceAllowedGeminiModels,
   parseModelList,
 } from "./googleModels";
+import { logGenerativeClientTarget, resolveGeminiApiBaseUrl } from "./geminiApiUrl";
 
-const GEMINI_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
+const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
 
 const DEFAULT_GEMINI_CHAT_MODELS = ["gemini-2.5-pro"] as const;
 
+const RAW_GEMINI_CHAT_MODELS = parseModelList(
+  process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
+  [...DEFAULT_GEMINI_CHAT_MODELS]
+);
+
+assertNoLatestAliases(RAW_GEMINI_CHAT_MODELS, {
+  context: "chat",
+  envVar: "GEMINI_CHAT_MODELS",
+});
+
 const GEMINI_CHAT_MODELS = enforceAllowedGeminiModels(
-  parseModelList(
-    process.env.GEMINI_CHAT_MODELS ?? process.env.GEMINI_CHAT_MODEL,
-    [...DEFAULT_GEMINI_CHAT_MODELS]
-  ),
+  RAW_GEMINI_CHAT_MODELS,
   {
     fallback: DEFAULT_GEMINI_CHAT_MODELS,
     context: "chat",
@@ -23,6 +31,7 @@ const GEMINI_CHAT_MODELS = enforceAllowedGeminiModels(
 
 const EXPECTED_GEMINI_MODELS = [...GEMINI_ALLOWED_MODELS];
 let geminiModelLogPromise: Promise<void> | null = null;
+let chatClientLogged = false;
 
 export type GeminiChatRole = "user" | "assistant";
 
@@ -156,6 +165,8 @@ export async function callGeminiChat(
       status: 500,
     };
   }
+
+  logChatClientConfiguration(model);
 
   const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
   const headers: Record<string, string> = {
@@ -318,4 +329,18 @@ function getNonEmptyString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function logChatClientConfiguration(model: string) {
+  if (chatClientLogged) {
+    return;
+  }
+
+  chatClientLogged = true;
+  logGenerativeClientTarget({
+    provider: "Gemini",
+    context: "chat",
+    baseUrl: GEMINI_API_URL,
+    model,
+  });
 }

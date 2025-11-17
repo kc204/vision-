@@ -1,5 +1,6 @@
-const DEFAULT_GOOGLE_API_URL =
-  process.env.GEMINI_API_URL ?? "https://generativelanguage.googleapis.com/v1";
+import { resolveGeminiApiBaseUrl } from "./geminiApiUrl";
+
+const DEFAULT_GOOGLE_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
 
 const entitlementCache = new Map<string, Promise<Set<string>>>();
 
@@ -16,7 +17,32 @@ export function parseModelList(value: string | undefined, fallback: string[]): s
   return entries.length > 0 ? entries : [...fallback];
 }
 
-export const GEMINI_ALLOWED_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash"] as const;
+export const GEMINI_ALLOWED_MODELS = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-1.5-pro",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-8b",
+] as const;
+
+export function assertNoLatestAliases(
+  requested: string[],
+  options: { context: string; envVar?: string }
+): void {
+  const flagged = requested.filter((model) => /-latest$/i.test(model));
+  if (flagged.length === 0) {
+    return;
+  }
+
+  const source = options.envVar ?? "Gemini model configuration";
+  const hint =
+    flagged.length === 1
+      ? "Use an explicit model ID such as gemini-2.5-flash."
+      : "Use explicit model IDs such as gemini-2.5-flash.";
+  throw new Error(
+    `[Gemini] ${source} for ${options.context} cannot use \"*-latest\" aliases (${flagged.join(", ")}). ${hint}`
+  );
+}
 
 type GeminiAllowedModel = (typeof GEMINI_ALLOWED_MODELS)[number];
 
