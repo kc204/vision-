@@ -20,7 +20,7 @@ export function logGenerativeClientTarget({
   model: string;
   requireBeta?: boolean;
 }): void {
-  const normalizedUrl = baseUrl.replace(/\/+$, "");
+  const normalizedUrl = baseUrl.replace(/\/+$/, "");
   console.info(
     `[${provider}] ${context} client targeting ${normalizedUrl} with model ${model}.`
   );
