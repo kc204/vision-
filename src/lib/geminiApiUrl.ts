@@ -4,7 +4,7 @@ export const GEMINI_V1BETA_BASE_URL =
 export function resolveGeminiApiBaseUrl(value?: string): string {
   const trimmed = typeof value === "string" ? value.trim() : "";
   const base = trimmed.length > 0 ? trimmed : GEMINI_V1BETA_BASE_URL;
-  return base.replace(/\/+$/, "");
+  return base.replace(/\/+$, "");
 }
 
 export function logGenerativeClientTarget({
@@ -20,7 +20,7 @@ export function logGenerativeClientTarget({
   model: string;
   requireBeta?: boolean;
 }): void {
-  const normalizedUrl = baseUrl.replace(/\/+$/, "");
+  const normalizedUrl = baseUrl.replace(/\/+$, "");
   console.info(
     `[${provider}] ${context} client targeting ${normalizedUrl} with model ${model}.`
   );
