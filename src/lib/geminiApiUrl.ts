@@ -4,7 +4,7 @@ export const GEMINI_V1BETA_BASE_URL =
 export function resolveGeminiApiBaseUrl(value?: string): string {
   const trimmed = typeof value === "string" ? value.trim() : "";
   const base = trimmed.length > 0 ? trimmed : GEMINI_V1BETA_BASE_URL;
-  return base.replace(/\/+$, "");
+  return base.replace(/\/+$/, "");
 }
 
 export function logGenerativeClientTarget({
