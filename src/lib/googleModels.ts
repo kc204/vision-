@@ -183,6 +183,10 @@ async function listGoogleModels(
           const shortName = entry.name.split("/").pop();
           if (shortName) {
             models.add(shortName);
+            const baseName = shortName.replace(/-latest$/i, "");
+            if (baseName !== shortName) {
+              models.add(baseName);
+            }
           }
         }
       }
