@@ -218,7 +218,10 @@ export default function ImageBuilderPage() {
 
     hasInitializedConversationRef.current = true;
     resetConversation();
-  }, [resetConversation]);
+    // resetConversation captures a lot of mutable state, but this initialization
+    // should only ever run on first mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function advanceConversation(nextIndex: number, responses: SeedResponses) {
     if (nextIndex >= seedTopics.length) {
