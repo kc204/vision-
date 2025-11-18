@@ -439,13 +439,14 @@ export default function ImageBuilderPage() {
 
     try {
       const images = await encodeFiles(files);
+      const constraintsText = seedResponses.constraints?.trim() ?? "";
       const payload: ImagePromptPayload = {
         vision_seed_text: visionSeedText,
         model: chosenModel,
         selectedOptions,
         glossary: visualGlossary,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
-        constraints: constraints.trim().length ? constraints.trim() : null,
+        constraints: constraintsText.length ? constraintsText : null,
       };
 
       const requestPayload: DirectorRequest = {
