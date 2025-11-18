@@ -200,8 +200,10 @@ async function callGeminiImageProvider(
   }
 
   const { images, promptText, metadata } = parseGeminiImageResponse(data);
+  const hasPromptText = typeof promptText === "string" && promptText.trim().length > 0;
+  const hasMetadata = metadata !== undefined;
 
-  if (images.length === 0) {
+  if (images.length === 0 && !hasPromptText && !hasMetadata) {
     return {
       success: false,
       provider: "gemini",

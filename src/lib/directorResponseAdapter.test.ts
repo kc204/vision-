@@ -94,6 +94,23 @@ test("mapDirectorCoreSuccess normalizes image prompt payloads", () => {
   assert.equal(response.media?.[0]?.caption, "Hero");
 });
 
+test("mapDirectorCoreSuccess preserves prompt-only Gemini payloads", () => {
+  const response = mapDirectorCoreSuccess({
+    success: true,
+    mode: "image_prompt",
+    provider: "gemini",
+    images: [],
+    promptText: "Describe the world",
+    metadata: { caution: "text-only" },
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(response.mode, "image_prompt");
+  assert.equal(response.text, "Describe the world");
+  assert.equal(response.fallbackText, "Describe the world");
+  assert.equal(response.media?.length, 0);
+});
+
 test("mapDirectorCoreSuccess stringifies video plans and media", () => {
   const response = mapDirectorCoreSuccess(createVideoSuccess());
 
