@@ -15,6 +15,7 @@ import type {
   GeneratedImage,
   GeneratedVideo,
   LoopSequenceResult,
+  VideoPlanPayload,
 } from "./directorTypes";
 
 const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
@@ -477,14 +478,10 @@ function buildUserParts(payload: unknown, images: string[] | undefined) {
   return parts;
 }
 
-function buildVeoVideoRequestPayload(
-  payload: DirectorRequest["payload"],
+export function buildVeoVideoRequestPayload(
+  payload: VideoPlanPayload,
   images?: string[]
 ): ValidationResult<VeoPredictRequest> {
-  if (!isRecord(payload)) {
-    return { ok: false, error: "Video plan payload must be an object." };
-  }
-
   const {
     vision_seed_text,
     script_text,
@@ -494,7 +491,7 @@ function buildVeoVideoRequestPayload(
     mood_profile,
     planner_context,
     cinematic_control_options,
-  } = payload as Record<string, unknown>;
+  } = payload;
 
   if (!isNonEmptyString(vision_seed_text)) {
     return { ok: false, error: "vision_seed_text is required for Veo video generation." };

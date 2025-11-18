@@ -3,7 +3,13 @@ import test from "node:test";
 
 import { POST } from "@/app/api/director/route";
 import * as directorClient from "@/lib/directorClient";
-import type { DirectorCoreError, DirectorCoreSuccess } from "@/lib/directorTypes";
+import type {
+  DirectorCoreError,
+  DirectorCoreSuccess,
+  DirectorRequest,
+  DirectorResponse,
+  VideoPlanPayload,
+} from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
   DIRECTOR_CORE_REQUIRE_API_KEY: process.env.DIRECTOR_CORE_REQUIRE_API_KEY,
@@ -45,25 +51,35 @@ function buildImagePayload() {
   };
 }
 
-function buildVideoPlanPayload() {
+function buildVideoPlanPayload(overrides?: Partial<VideoPlanPayload>) {
+  const basePayload: VideoPlanPayload = {
+    vision_seed_text: "Epic skyline",
+    script_text: "The hero returns.",
+    tone: "hype",
+    visual_style: "realistic",
+    aspect_ratio: "16:9",
+    mood_profile: null,
+    cinematic_control_options: {
+      cameraAngles: ["wide"],
+      shotSizes: ["medium"],
+      composition: ["rule of thirds"],
+      cameraMovement: ["push"],
+      lightingStyles: ["neon"],
+      colorPalettes: ["cool"],
+      atmosphere: ["rain"],
+    },
+  };
+
+  const payload: VideoPlanPayload = {
+    ...basePayload,
+    ...overrides,
+    cinematic_control_options:
+      overrides?.cinematic_control_options ?? basePayload.cinematic_control_options,
+  };
+
   return {
     mode: "video_plan" as const,
-    payload: {
-      vision_seed_text: "Epic skyline",
-      script_text: "The hero returns.",
-      tone: "hype",
-      visual_style: "realistic",
-      aspect_ratio: "16:9",
-      cinematic_control_options: {
-        cameraAngles: ["wide"],
-        shotSizes: ["medium"],
-        composition: ["rule of thirds"],
-        cameraMovement: ["push"],
-        lightingStyles: ["neon"],
-        colorPalettes: ["cool"],
-        atmosphere: ["rain"],
-      },
-    },
+    payload,
   };
 }
 
@@ -197,6 +213,46 @@ test("video plans use server Veo credentials when headers are missing", async (t
   const payload = await response.json();
   assert.equal(payload.success, true);
   assert.equal(callDirectorMock.mock.calls.length, 1);
+});
+
+test("video plan requests forward planner_context to Director Core", async (t) => {
+  setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
+  setEnv("GEMINI_API_KEY", undefined);
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("VEO_API_KEY", "server-veo-key");
+
+  const success: DirectorCoreSuccess = {
+    success: true,
+    mode: "video_plan",
+    provider: "veo-3.1",
+    videos: [],
+  };
+
+  const callDirectorMock = t.mock.method(
+    directorClient,
+    "callDirectorCore",
+    async () => success
+  );
+
+  const plannerContext = "  Approved energy arc  ";
+  const response = await POST(
+    createRequest(buildVideoPlanPayload({ planner_context: plannerContext }))
+  );
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.success, true);
+
+  const callRequest =
+    (callDirectorMock.mock.calls[0]?.arguments?.[0] as
+      | Extract<DirectorRequest, { mode: "video_plan" }>
+      | undefined);
+  assert.ok(callRequest, "Director Core did not receive a payload");
+  assert.equal(
+    callRequest.payload.planner_context,
+    plannerContext.trim(),
+    "planner_context was not forwarded to Director Core"
+  );
 });
 
 test("provider failures return a structured error response", async (t) => {

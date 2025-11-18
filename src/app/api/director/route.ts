@@ -511,12 +511,9 @@ function parseVideoPlanPayload(
     visual_style: visual_style as VideoPlanPayload["visual_style"],
     aspect_ratio: aspect_ratio as VideoPlanPayload["aspect_ratio"],
     mood_profile: parseNullableString(mood_profile),
+    planner_context: plannerContext,
     cinematic_control_options: cinematicControls.value,
   };
-
-  if (plannerContext) {
-    payload.planner_context = plannerContext;
-  }
 
   return { ok: true, value: payload };
 }
