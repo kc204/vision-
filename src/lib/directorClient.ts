@@ -43,7 +43,7 @@ const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
 );
 const VEO_VIDEO_MODELS = parseModelList(
   process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
-  ["veo-3.1"]
+  ["veo-3.1-generate-preview"]
 );
 
 let geminiImageClientLogged = false;
@@ -207,7 +207,7 @@ async function callVeoVideoProvider(
   if (!apiKey) {
     return {
       success: false,
-      provider: "veo-3.1",
+      provider: "veo",
       error:
         "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
       status: 401,
@@ -215,18 +215,19 @@ async function callVeoVideoProvider(
   }
 
   const model = VEO_VIDEO_MODELS[0];
-  if (!model) {
+  const modelValidationError = validateVeoModel(model);
+  if (modelValidationError) {
     return {
       success: false,
-      provider: "veo-3.1",
-      error: "No Veo model is configured.",
+      provider: model ?? "veo",
+      error: modelValidationError,
       status: 500,
     };
   }
 
-  logVeoClientConfiguration(model);
+  logVeoClientConfiguration({ model, baseUrl: VEO_API_URL });
 
-  const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+  const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:predictLongRunning`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -257,7 +258,7 @@ async function callVeoVideoProvider(
     const message = error instanceof Error ? error.message : "Failed to reach Veo provider.";
     return {
       success: false,
-      provider: "veo-3.1",
+      provider: model,
       error: `Veo request failed to send: ${message}`,
     };
   }
@@ -269,7 +270,7 @@ async function callVeoVideoProvider(
     const message = error instanceof Error ? error.message : "Unknown parse error.";
     return {
       success: false,
-      provider: "veo-3.1",
+      provider: model,
       status: response.status,
       error: `Veo responded with invalid JSON: ${message}`,
     };
@@ -278,29 +279,46 @@ async function callVeoVideoProvider(
   if (!response.ok) {
     return {
       success: false,
-      provider: "veo-3.1",
+      provider: model,
       status: response.status,
       error: extractErrorMessage(data, "Veo video request failed."),
       details: data,
     };
   }
 
-  const { videos, storyboard, metadata } = parseVeoVideoResponse(data);
+  const operationName = extractOperationName(data);
+  if (!operationName) {
+    return {
+      success: false,
+      provider: model,
+      status: response.status,
+      error:
+        "Veo did not return a long-running operation name. Check the configured model and endpoint.",
+      details: data,
+    };
+  }
+
+  const operationResult = await pollVeoVideoOperation(operationName, apiKey, model);
+  if (!operationResult.success) {
+    return operationResult.result;
+  }
+
+  const { videos, storyboard, metadata } = parseVeoVideoResponse(operationResult.payload);
 
   if (videos.length === 0) {
     return {
       success: false,
-      provider: "veo-3.1",
-      status: response.status,
+      provider: model,
+      status: operationResult.status,
       error: "Veo did not return any video outputs in the response.",
-      details: data,
+      details: operationResult.payload,
     };
   }
 
   return {
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
+    provider: model,
     videos,
     storyboard,
     metadata,
@@ -779,7 +797,13 @@ function logGeminiImageClientConfiguration(model: string) {
   });
 }
 
-function logVeoClientConfiguration(model: string) {
+function logVeoClientConfiguration({
+  model,
+  baseUrl,
+}: {
+  model: string;
+  baseUrl: string;
+}) {
   if (veoClientLogged) {
     return;
   }
@@ -788,8 +812,152 @@ function logVeoClientConfiguration(model: string) {
   logGenerativeClientTarget({
     provider: "Veo",
     context: "director video",
-    baseUrl: VEO_API_URL,
+    baseUrl,
     model,
+  });
+}
+
+function validateVeoModel(model: string | undefined): string | null {
+  if (!model) {
+    return "No Veo model is configured.";
+  }
+
+  if (!/^veo-[\w.-]*generate/i.test(model)) {
+    return `Veo model "${model}" is not valid for long-running video generation. Use a model ending in "-generate-preview" (e.g., "veo-3.1-generate-preview").`;
+  }
+
+  return null;
+}
+
+function extractOperationName(payload: unknown): string | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (typeof payload.name === "string") {
+    return payload.name;
+  }
+
+  if (isRecord(payload.operation) && typeof payload.operation.name === "string") {
+    return payload.operation.name;
+  }
+
+  return null;
+}
+
+async function pollVeoVideoOperation(
+  operationName: string,
+  apiKey: string,
+  provider: string
+): Promise<
+  | { success: true; payload: unknown; status?: number }
+  | { success: false; result: DirectorCoreResult }
+> {
+  const operationUrl = buildVeoOperationUrl(operationName, apiKey);
+  const maxAttempts = 30;
+  const pollIntervalMs = 1000;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(operationUrl, { method: "GET" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reach Veo operation endpoint.";
+      return {
+        success: false,
+        result: {
+          success: false,
+          provider,
+          error: `Veo operation request failed to send: ${message}`,
+        },
+      };
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown parse error.";
+      return {
+        success: false,
+        result: {
+          success: false,
+          provider,
+          status: response.status,
+          error: `Veo operation responded with invalid JSON: ${message}`,
+        },
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        result: {
+          success: false,
+          provider,
+          status: response.status,
+          error: extractErrorMessage(payload, "Veo video operation request failed."),
+          details: payload,
+        },
+      };
+    }
+
+    if (isRecord(payload) && payload.done) {
+      if (payload.error) {
+        return {
+          success: false,
+          result: {
+            success: false,
+            provider,
+            status: response.status,
+            error: extractErrorMessage(payload, "Veo video operation failed."),
+            details: payload,
+          },
+        };
+      }
+
+      const responsePayload = extractOperationPayload(payload);
+      return { success: true, payload: responsePayload, status: response.status };
+    }
+
+    await delay(pollIntervalMs);
+  }
+
+  return {
+    success: false,
+    result: {
+      success: false,
+      provider,
+      error: "Timed out waiting for Veo video generation to finish.",
+    },
+  };
+}
+
+function buildVeoOperationUrl(operationName: string, apiKey: string): string {
+  const normalizedBase = VEO_API_URL.replace(/\/+$/, "");
+  const normalizedName = operationName.replace(/^\/+/, "");
+  const baseUrl = operationName.startsWith("http")
+    ? operationName.replace(/\/+$/, "")
+    : `${normalizedBase}/${normalizedName}`;
+  const delimiter = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${delimiter}key=${encodeURIComponent(apiKey)}`;
+}
+
+function extractOperationPayload(payload: Record<string, unknown>): unknown {
+  if (payload.response !== undefined) {
+    return payload.response;
+  }
+
+  if (isRecord(payload.result)) {
+    return payload.result;
+  }
+
+  return payload;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
 
