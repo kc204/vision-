@@ -432,7 +432,7 @@ export default function VideoBuilderPage() {
               YouTube Cinematic Director
             </p>
             <h1 className="text-3xl font-semibold text-white">
-              Turn your script into a Veo-ready plan
+              Turn your script into a Gemini storyboard
             </h1>
             <p className="text-sm text-slate-300">
               Paste your narration, set the tone, and the Director Core will deliver a scene-by-scene plan with continuity locks and thumbnail guidance.
@@ -532,12 +532,12 @@ export default function VideoBuilderPage() {
         <ProviderApiKeyInput
           value={providerApiKey}
           onChange={setProviderApiKey}
-          description="Optional: override the managed key with your own Gemini or Veo access for this browser session."
+          description="Optional: override the managed key with your own Gemini access for this browser session."
           helperText="If provided, the key is sent with each Director Core request via x-provider-api-key."
         />
 
         <ServerCredentialNotice
-          description="Director Core keeps Veo-capable Google access configured on the server."
+          description="Director Core keeps Gemini access configured on the server."
           helperText="You can focus on planning—no local API keys are needed."
         />
 
@@ -571,7 +571,7 @@ export default function VideoBuilderPage() {
       <aside className="space-y-6">
         {!result && !error ? (
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
-            Veo-ready plans will appear here once generated.
+            Gemini-ready plans will appear here once generated.
           </div>
         ) : null}
 
@@ -614,13 +614,13 @@ export default function VideoBuilderPage() {
                 label="Copy scenes only"
                 className="inline-flex items-center rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-white/30 hover:bg-white/10"
               />
-              <button
-                type="button"
-                className="inline-flex items-center rounded-lg border border-dashed border-white/20 px-3 py-2 text-xs font-semibold text-slate-300"
-                disabled
-              >
-                TODO: Veo 3 render hook
-              </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-lg border border-dashed border-white/20 px-3 py-2 text-xs font-semibold text-slate-300"
+                  disabled
+                >
+                  TODO: Gemini render hook
+                </button>
             </div>
           </div>
         ) : null}

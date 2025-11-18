@@ -340,7 +340,7 @@ export default function LoopBuilderPage() {
         />
 
         <ServerCredentialNotice
-          description="Loop synthesis routes through the server's Nano Banana access."
+          description="Loop synthesis routes through the server's Gemini access."
           helperText="Predictive loop cycles are authenticated automatically—no provider keys to manage."
         />
 

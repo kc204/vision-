@@ -129,6 +129,22 @@ const visualOptionLists: Record<
   atmosphere,
 };
 
+function toGlossaryEntries(options: VisualOption[]) {
+  return options.map(({ id, label, tooltip, promptSnippet }) => ({
+    id,
+    label,
+    tooltip,
+    promptSnippet,
+  }));
+}
+
+const visualGlossary = (Object.keys(visualOptionLists) as Array<
+  keyof typeof visualOptionLists
+>).reduce<ImagePromptPayload["glossary"]>((acc, key) => {
+  acc[key] = toGlossaryEntries(visualOptionLists[key]);
+  return acc;
+}, {} as ImagePromptPayload["glossary"]);
+
 export default function ImageBuilderPage() {
   const [subjectFocus, setSubjectFocus] = useState("");
   const [environment, setEnvironment] = useState("");
@@ -223,16 +239,34 @@ export default function ImageBuilderPage() {
     >).flatMap(([key, ids]) => findVisualSnippets(visualOptionLists[key], ids));
   }, [selectedOptions]);
 
-  const trimmedManualVisionSeedText = manualVisionSeedText.trim();
+  const structuredControlText = useMemo(() => {
+    if (!selectedVisualOptions.length) {
+      return "";
+    }
 
-  const fallbackVisionSeedText = selectedVisualOptions
-    .map((option) => `${option.label}: ${option.promptSnippet}`)
-    .join("\n");
+    return selectedVisualOptions
+      .map((option) => `${option.label}: ${option.promptSnippet}`)
+      .join("\n");
+  }, [selectedVisualOptions]);
 
-  const visionSeedText =
-    trimmedManualVisionSeedText.length > 0
-      ? trimmedManualVisionSeedText
-      : fallbackVisionSeedText;
+  const trimmedManualVisionSeedText = useMemo(
+    () => manualVisionSeedText.trim(),
+    [manualVisionSeedText]
+  );
+
+  const visionSeedText = useMemo(() => {
+    const mergedSections = [trimmedManualVisionSeedText, structuredControlText]
+      .map((section) => section.trim())
+      .filter((section) => section.length > 0);
+
+    if (mergedSections.length > 0) {
+      return mergedSections.join("\n\n");
+    }
+
+    return files.length > 0
+      ? "Vision Seed references provided via attached images."
+      : "";
+  }, [files, structuredControlText, trimmedManualVisionSeedText]);
 
   const hasSeedContent =
     trimmedManualVisionSeedText.length > 0 ||
@@ -255,6 +289,7 @@ export default function ImageBuilderPage() {
         vision_seed_text: visionSeedText,
         model,
         selectedOptions,
+        glossary: visualGlossary,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
         constraints: constraints.trim().length ? constraints.trim() : null,
       };

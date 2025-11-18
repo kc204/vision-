@@ -5,7 +5,7 @@ import { LayoutShell } from "@/components/LayoutShell";
 export const metadata: Metadata = {
   title: "Vision Architect Studio",
   description:
-    "Craft cinematic image prompts, Veo-ready video plans, and predictive loop sequences with a unified Director Core.",
+    "Craft cinematic image prompts, Gemini storyboards, and predictive loop sequences with a unified Director Core.",
 };
 
 export default function RootLayout({

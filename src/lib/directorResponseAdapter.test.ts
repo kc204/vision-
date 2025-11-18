@@ -48,18 +48,9 @@ function createVideoSuccess(): DirectorCoreSuccess {
   return {
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
-    videos: [
-      {
-        url: "https://cdn.example/video.mp4",
-        mimeType: "video/mp4",
-        posterImage: "data:image/png;base64,iVBOR",
-        frames: ["https://cdn.example/frame.png"],
-        durationSeconds: 30,
-        frameRate: 24,
-      },
-    ],
+    provider: "gemini",
     storyboard,
+    storyboardText: JSON.stringify(storyboard),
   };
 }
 
@@ -77,7 +68,7 @@ function createLoopSuccess(): DirectorCoreSuccess {
   return {
     success: true,
     mode: "loop_sequence",
-    provider: "nano-banana",
+    provider: "gemini",
     loop,
   };
 }
@@ -111,15 +102,12 @@ test("mapDirectorCoreSuccess preserves prompt-only Gemini payloads", () => {
   assert.equal(response.media?.length, 0);
 });
 
-test("mapDirectorCoreSuccess stringifies video plans and media", () => {
+test("mapDirectorCoreSuccess stringifies video plans", () => {
   const response = mapDirectorCoreSuccess(createVideoSuccess());
 
   assert.equal(response.mode, "video_plan");
   assert.ok(response.text?.includes("thumbnailConcept"));
-  assert.equal(response.media?.length, 1);
-  assert.equal(response.media?.[0]?.url, "https://cdn.example/video.mp4");
-  assert.equal(response.media?.[0]?.posterUrl, "data:image/png;base64,iVBOR");
-  assert.equal(response.media?.[0]?.frames?.[0]?.url, "https://cdn.example/frame.png");
+  assert.equal(response.media?.length, 0);
 });
 
 test("mapDirectorCoreSuccess returns plan-only video responses", () => {
@@ -149,9 +137,9 @@ test("mapDirectorCoreSuccess returns plan-only video responses", () => {
   const response = mapDirectorCoreSuccess({
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
-    videos: [],
+    provider: "gemini",
     storyboard,
+    storyboardText: JSON.stringify(storyboard),
   });
 
   assert.equal(response.success, true);
