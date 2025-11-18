@@ -10,17 +10,15 @@ import type {
   DirectorCoreSuccess,
   DirectorMediaAsset,
   DirectorMediaAssetFrame,
+  DirectorMode,
   DirectorRequest,
   DirectorSuccessResponse,
   GeneratedImage,
-  GeneratedVideo,
   LoopSequenceResult,
+  LoopCycleJSON,
 } from "./directorTypes";
 
 const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
-const VEO_API_URL = resolveGeminiApiBaseUrl(process.env.VEO_API_URL ?? GEMINI_API_URL);
-const NANO_BANANA_API_URL =
-  process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
 const DEFAULT_GEMINI_IMAGE_MODELS = ["gemini-2.5-flash"] as const;
 const RAW_GEMINI_IMAGE_MODELS = parseModelList(
@@ -28,32 +26,25 @@ const RAW_GEMINI_IMAGE_MODELS = parseModelList(
   [...DEFAULT_GEMINI_IMAGE_MODELS]
 );
 
+const DEFAULT_GEMINI_DIRECTOR_MODELS = ["gemini-2.5-pro"] as const;
+const RAW_GEMINI_DIRECTOR_MODELS = parseModelList(
+  process.env.GEMINI_DIRECTOR_MODELS ??
+    process.env.GEMINI_DIRECTOR_MODEL ??
+    process.env.GEMINI_CHAT_MODELS ??
+    process.env.GEMINI_CHAT_MODEL,
+  [...DEFAULT_GEMINI_DIRECTOR_MODELS]
+);
+
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-type VeoMediaAttachment = {
-  type: "IMAGE" | "VIDEO";
-  mime_type?: string;
-  data?: string;
-  url?: string;
-};
-
-type VeoPromptPayload = {
-  prompt: string;
-  script: { input: string };
-  aspect_ratio?: string;
-  tone?: string;
-  visual_style?: string;
-  mood_profile?: string | null;
-  cinematic_control_options?: Record<string, unknown>;
-  media?: VeoMediaAttachment[];
-  system_prompt?: string;
-};
-
-type VeoPredictRequest = { prompt: VeoPromptPayload };
 
 assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
   context: "image",
   envVar: "GEMINI_IMAGE_MODELS",
+});
+
+assertNoLatestAliases(RAW_GEMINI_DIRECTOR_MODELS, {
+  context: "director",
+  envVar: "GEMINI_DIRECTOR_MODELS",
 });
 
 const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
@@ -64,23 +55,22 @@ const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
     envVar: "GEMINI_IMAGE_MODELS",
   }
 );
-const VEO_VIDEO_MODELS = parseModelList(
-  process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
-  ["veo-3.1-generate-preview"]
+
+const GEMINI_DIRECTOR_MODELS = enforceAllowedGeminiModels(
+  RAW_GEMINI_DIRECTOR_MODELS,
+  {
+    fallback: DEFAULT_GEMINI_DIRECTOR_MODELS,
+    context: "director",
+    envVar: "GEMINI_DIRECTOR_MODELS",
+  }
 );
 
 let geminiImageClientLogged = false;
-let veoClientLogged = false;
+let geminiDirectorClientLogged = false;
 
 export type DirectorProviderCredentials = {
   gemini?: {
     apiKey: string;
-  };
-  veo?: {
-    apiKey: string;
-  };
-  nanoBanana?: {
-    apiKey?: string;
   };
 };
 
@@ -93,9 +83,9 @@ export async function callDirectorCore(
       case "image_prompt":
         return await callGeminiImageProvider(req, credentials);
       case "video_plan":
-        return await callVeoVideoProvider(req, credentials);
+        return await callGeminiVideoPlanProvider(req, credentials);
       case "loop_sequence":
-        return await callNanoBananaProvider(req, credentials);
+        return await callGeminiLoopProvider(req, credentials);
       default:
         return {
           success: false,
@@ -145,7 +135,7 @@ async function callGeminiImageProvider(
 
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const parts = buildUserParts(req.payload, req.images);
+  const parts = buildUserParts(req.mode, req.payload, req.images);
   const payload = {
     system_instruction: {
       role: "system",
@@ -223,57 +213,53 @@ async function callGeminiImageProvider(
   };
 }
 
-async function callVeoVideoProvider(
+async function callGeminiVideoPlanProvider(
   req: Extract<DirectorRequest, { mode: "video_plan" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey = credentials?.veo?.apiKey ?? getServerVeoApiKey();
+  const apiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
 
   if (!apiKey) {
     return {
       success: false,
-      provider: "veo",
+      provider: "gemini",
       error:
-        "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+        "Missing credentials for Gemini video planning. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
-  const model = VEO_VIDEO_MODELS[0];
-  const modelValidationError = validateVeoModel(model);
-  if (modelValidationError) {
+  const model = GEMINI_DIRECTOR_MODELS[0];
+  if (!model) {
     return {
       success: false,
-      provider: model ?? "veo",
-      error: modelValidationError,
+      provider: "gemini",
+      error: "No Gemini director model is configured.",
       status: 500,
     };
   }
 
-  logVeoClientConfiguration({ model, baseUrl: VEO_API_URL });
+  logGeminiDirectorClientConfiguration(model);
 
-  const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:predictLongRunning`;
+  const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const requestPayload = buildVeoVideoRequestPayload(req.payload, req.images);
-  if (!requestPayload.ok) {
-    return {
-      success: false,
-      provider: model,
-      status: 400,
-      error: requestPayload.error,
-    };
-  }
-
+  const parts = buildUserParts(req.mode, req.payload, req.images);
   const payload = {
-    prompt: {
-      ...requestPayload.value.prompt,
-      system_prompt: DIRECTOR_CORE_SYSTEM_PROMPT,
+    system_instruction: {
+      role: "system",
+      parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
     },
-  } satisfies VeoPredictRequest;
+    contents: [
+      {
+        role: "user" as const,
+        parts,
+      },
+    ],
+  };
 
   let response: Response;
   try {
@@ -283,11 +269,11 @@ async function callVeoVideoProvider(
       body: JSON.stringify(payload),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to reach Veo provider.";
+    const message = error instanceof Error ? error.message : "Failed to reach Gemini director provider.";
     return {
       success: false,
-      provider: model,
-      error: `Veo request failed to send: ${message}`,
+      provider: "gemini",
+      error: `Gemini request failed to send: ${message}`,
     };
   }
 
@@ -298,120 +284,107 @@ async function callVeoVideoProvider(
     const message = error instanceof Error ? error.message : "Unknown parse error.";
     return {
       success: false,
-      provider: model,
+      provider: "gemini",
       status: response.status,
-      error: `Veo responded with invalid JSON: ${message}`,
+      error: `Gemini responded with invalid JSON: ${message}`,
     };
   }
 
   if (!response.ok) {
     return {
       success: false,
-      provider: model,
+      provider: "gemini",
       status: response.status,
-      error: extractErrorMessage(data, "Veo video request failed."),
+      error: extractErrorMessage(data, "Gemini video plan request failed."),
       details: data,
     };
   }
 
-  const operationName = extractOperationName(data);
-  if (!operationName) {
+  const { text, metadata } = parseGeminiTextResponse(data);
+
+  if (!text) {
     return {
       success: false,
-      provider: model,
+      provider: "gemini",
       status: response.status,
-      error:
-        "Veo did not return a long-running operation name. Check the configured model and endpoint.",
+      error: "Gemini did not return any storyboard text in the response.",
       details: data,
     };
   }
 
-  const operationResult = await pollVeoVideoOperation(operationName, apiKey, model);
-  if (!operationResult.success) {
-    return operationResult.result;
-  }
-
-  const validatedResponse = validateVeoResponse(
-    operationResult.payload,
-    model,
-    operationResult.status
-  );
-  if (!validatedResponse.ok) {
-    return validatedResponse.result;
-  }
-
-  const { videos, storyboard, metadata } = parseVeoVideoResponse(
-    validatedResponse.payload
-  );
-
-  const hasStoryboardPlan = hasStructuredPlan(storyboard);
-  const hasMetadataPlan = metadataHasStructuredPlan(metadata);
-
-  if (videos.length === 0 && !hasStoryboardPlan && !hasMetadataPlan) {
-    return {
-      success: false,
-      provider: model,
-      status: operationResult.status,
-      error: "Veo did not return any video outputs or storyboard plan in the response.",
-      details: operationResult.payload,
-    };
-  }
+  const storyboard = tryParseJson(text);
+  const enrichedMetadata = mergeMetadataWithRawText(metadata, text);
 
   return {
     success: true,
     mode: "video_plan",
-    provider: model,
-    videos,
-    storyboard,
-    metadata,
+    provider: "gemini",
+    storyboard: storyboard ?? undefined,
+    storyboardText: text,
+    metadata: enrichedMetadata,
   };
 }
 
-async function callNanoBananaProvider(
+async function callGeminiLoopProvider(
   req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const apiKey =
-    credentials?.nanoBanana?.apiKey ?? getNonEmptyString(process.env.NANO_BANANA_API_KEY);
+  const apiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
   if (!apiKey) {
     return {
       success: false,
-      provider: "nano-banana",
+      provider: "gemini",
       error:
-        "Missing API key for Nano Banana loops. Provide a key in the request or set NANO_BANANA_API_KEY.",
+        "Missing credentials for Gemini loop planning. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
-  const urlBase = NANO_BANANA_API_URL.replace(/\/$/, "");
-  const url = `${urlBase}/loop-sequences:generate`;
+  const model = GEMINI_DIRECTOR_MODELS[0];
+  if (!model) {
+    return {
+      success: false,
+      provider: "gemini",
+      error: "No Gemini director model is configured.",
+      status: 500,
+    };
+  }
 
+  logGeminiDirectorClientConfiguration(model);
+
+  const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
+
+  const parts = buildUserParts(req.mode, req.payload, req.images);
   const payload = {
-    system_prompt: DIRECTOR_CORE_SYSTEM_PROMPT,
-    request: {
-      ...req.payload,
-      mode: req.mode,
-      images: req.images ?? [],
+    system_instruction: {
+      role: "system",
+      parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
     },
+    contents: [
+      {
+        role: "user" as const,
+        parts,
+      },
+    ],
   };
 
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to reach Nano Banana provider.";
+    const message = error instanceof Error ? error.message : "Failed to reach Gemini loop provider.";
     return {
       success: false,
-      provider: "nano-banana",
-      error: `Nano Banana request failed to send: ${message}`,
+      provider: "gemini",
+      error: `Gemini request failed to send: ${message}`,
     };
   }
 
@@ -422,50 +395,64 @@ async function callNanoBananaProvider(
     const message = error instanceof Error ? error.message : "Unknown parse error.";
     return {
       success: false,
-      provider: "nano-banana",
+      provider: "gemini",
       status: response.status,
-      error: `Nano Banana responded with invalid JSON: ${message}`,
+      error: `Gemini responded with invalid JSON: ${message}`,
     };
   }
 
   if (!response.ok) {
     return {
       success: false,
-      provider: "nano-banana",
+      provider: "gemini",
       status: response.status,
-      error: extractErrorMessage(data, "Nano Banana loop request failed."),
+      error: extractErrorMessage(data, "Gemini loop request failed."),
       details: data,
     };
   }
 
-  const loop = parseNanoBananaResponse(data);
-
-  if (loop.frames.length === 0) {
+  const { text, metadata } = parseGeminiTextResponse(data);
+  if (!text) {
     return {
       success: false,
-      provider: "nano-banana",
+      provider: "gemini",
       status: response.status,
-      error: "Nano Banana did not return any frames for the loop sequence.",
+      error: "Gemini did not return any loop plan text in the response.",
       details: data,
     };
   }
+
+  const loopCycles = parseLoopCyclesFromText(text);
+  const loopMetadata = mergeMetadataWithRawText(metadata, text) ?? {};
+  if (loopCycles.length) {
+    loopMetadata.loop_cycles = loopCycles;
+  }
+
+  const loop: LoopSequenceResult = {
+    frames: [],
+    metadata: loopMetadata,
+  };
 
   return {
     success: true,
     mode: "loop_sequence",
-    provider: "nano-banana",
+    provider: "gemini",
     loop,
   };
 }
 
-function buildUserParts(payload: unknown, images: string[] | undefined) {
+function buildUserParts(
+  mode: DirectorMode,
+  payload: DirectorRequest["payload"],
+  images: string[] | undefined
+) {
   const parts: Array<
     | { text: string }
     | { inlineData: { mimeType: string; data: string } }
     | { fileData: { fileUri: string; mimeType?: string } }
   > = [
     {
-      text: JSON.stringify({ mode: "image_prompt", payload }),
+      text: JSON.stringify({ mode, payload }),
     },
   ];
 
@@ -476,93 +463,178 @@ function buildUserParts(payload: unknown, images: string[] | undefined) {
   return parts;
 }
 
-function buildVeoVideoRequestPayload(
-  payload: DirectorRequest["payload"],
-  images?: string[]
-): ValidationResult<VeoPredictRequest> {
-  if (!isRecord(payload)) {
-    return { ok: false, error: "Video plan payload must be an object." };
+function parseGeminiTextResponse(data: unknown): {
+  text?: string;
+  metadata?: Record<string, unknown>;
+} {
+  const textChunks: string[] = [];
+  let metadata: Record<string, unknown> | undefined;
+
+  if (isRecord(data)) {
+    metadata = extractMetadata(data);
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    for (const candidate of candidates) {
+      if (!isRecord(candidate)) {
+        continue;
+      }
+      const content = candidate.content;
+      if (isRecord(content) && Array.isArray(content.parts)) {
+        collectTextParts(content.parts, textChunks);
+      }
+      if (Array.isArray(candidate.output)) {
+        collectTextParts(candidate.output, textChunks);
+      }
+    }
   }
 
-  const {
-    vision_seed_text,
-    script_text,
-    tone,
-    visual_style,
-    aspect_ratio,
-    mood_profile,
-    cinematic_control_options,
-  } = payload as Record<string, unknown>;
-
-  if (!isNonEmptyString(vision_seed_text)) {
-    return { ok: false, error: "vision_seed_text is required for Veo video generation." };
-  }
-
-  if (!isNonEmptyString(script_text)) {
-    return { ok: false, error: "script_text is required for Veo video generation." };
-  }
-
-  const media = buildVeoMediaAttachments(images);
-
-  const veoPrompt: VeoPromptPayload = {
-    prompt: vision_seed_text.trim(),
-    script: { input: script_text.trim() },
+  return {
+    text: textChunks.length ? textChunks.join("\n").trim() : undefined,
+    metadata,
   };
-
-  if (isNonEmptyString(tone)) {
-    veoPrompt.tone = tone.trim();
-  }
-
-  if (isNonEmptyString(visual_style)) {
-    veoPrompt.visual_style = visual_style.trim();
-  }
-
-  if (isNonEmptyString(aspect_ratio)) {
-    veoPrompt.aspect_ratio = aspect_ratio.trim();
-  }
-
-  if (typeof mood_profile === "string") {
-    veoPrompt.mood_profile = mood_profile.trim().length ? mood_profile.trim() : null;
-  }
-
-  if (isRecord(cinematic_control_options)) {
-    veoPrompt.cinematic_control_options = cinematic_control_options as Record<string, unknown>;
-  }
-
-  if (media.length) {
-    veoPrompt.media = media;
-  }
-
-  return { ok: true, value: { prompt: veoPrompt } };
 }
 
-function buildVeoMediaAttachments(images?: string[]): VeoMediaAttachment[] {
-  const media: VeoMediaAttachment[] = [];
+function collectTextParts(parts: unknown[], textChunks: string[]): void {
+  for (const part of parts) {
+    if (!isRecord(part)) {
+      continue;
+    }
+    if (typeof part.text === "string") {
+      textChunks.push(part.text);
+    }
+  }
+}
 
-  if (!images) {
-    return media;
+function mergeMetadataWithRawText(
+  metadata: Record<string, unknown> | undefined,
+  text: string
+): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return metadata;
   }
 
-  for (const image of images) {
-    if (typeof image !== "string" || image.trim().length === 0) {
-      continue;
-    }
+  const nextMetadata = metadata ? { ...metadata } : {};
+  if (typeof nextMetadata.rawText !== "string") {
+    nextMetadata.rawText = trimmed;
+  }
+  return nextMetadata;
+}
 
-    const inlineData = parseDataUrl(image);
-    if (inlineData) {
-      media.push({ type: "IMAGE", data: inlineData.data, mime_type: inlineData.mimeType });
-      continue;
-    }
+function tryParseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
-    if (isLikelyUrl(image)) {
-      media.push({ type: "IMAGE", url: image });
-      continue;
-    }
-
-    media.push({ type: "IMAGE", data: image, mime_type: "image/png" });
+function parseLoopCyclesFromText(text: string): LoopCycleJSON[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return [];
   }
 
-  return media;
+  const parsed = tryParseJson(trimmed);
+  if (!parsed) {
+    return [];
+  }
+
+  return normalizeLoopCycleEntry(parsed);
+}
+
+function normalizeLoopCycleEntry(source: unknown): LoopCycleJSON[] {
+  if (!source) {
+    return [];
+  }
+
+  if (Array.isArray(source)) {
+    return source.flatMap((entry) => normalizeLoopCycleEntry(entry));
+  }
+
+  if (isLoopCycleJSON(source)) {
+    return [source];
+  }
+
+  if (isRecord(source)) {
+    const recordSource = source as Record<string, unknown>;
+    const nestedKeys = [
+      "loop_cycles",
+      "loopCycles",
+      "loop_plan",
+      "loopPlan",
+      "cycles",
+      "storyboard",
+      "scenes",
+      "sequence",
+    ];
+
+    for (const key of nestedKeys) {
+      if (recordSource[key] !== undefined) {
+        const nested = normalizeLoopCycleEntry(recordSource[key]);
+        if (nested.length) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
+function isLoopCycleJSON(value: unknown): value is LoopCycleJSON {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const requiredFields: Array<keyof LoopCycleJSON> = [
+    "segment_title",
+    "scene_description",
+    "main_subject",
+    "camera_movement",
+    "visual_tone",
+    "motion",
+    "mood",
+    "narrative",
+  ];
+
+  if (!requiredFields.every((field) => typeof record[field] === "string")) {
+    return false;
+  }
+
+  const continuity = record.continuity_lock;
+  if (!isRecord(continuity)) {
+    return false;
+  }
+
+  const continuityFields = [
+    "subject_identity",
+    "lighting_and_palette",
+    "camera_grammar",
+    "environment_motif",
+    "emotional_trajectory",
+  ];
+
+  if (!continuityFields.every((field) => typeof continuity[field] === "string")) {
+    return false;
+  }
+
+  if (
+    record.acceptance_check !== undefined &&
+    (!Array.isArray(record.acceptance_check) ||
+      !record.acceptance_check.every((entry) => typeof entry === "string"))
+  ) {
+    return false;
+  }
+
+  if (
+    record.sound_suggestion !== undefined &&
+    typeof record.sound_suggestion !== "string"
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function buildImageParts(images: string[] | undefined) {
@@ -642,186 +714,6 @@ function parseGeminiImageResponse(data: unknown): {
   };
 }
 
-function validateVeoResponse(
-  payload: unknown,
-  provider: string,
-  status?: number
-):
-  | { ok: true; payload: Record<string, unknown> }
-  | { ok: false; result: DirectorCoreResult } {
-  if (!isRecord(payload)) {
-    return {
-      ok: false,
-      result: {
-        success: false,
-        provider,
-        status,
-        error: "Veo returned an unexpected response payload.",
-        details: payload,
-      },
-    };
-  }
-
-  const recordPayload = payload as Record<string, unknown>;
-  const hasCandidates = Array.isArray(recordPayload.candidates);
-  const hasGeneratedVideos = Array.isArray(
-    (recordPayload as { generated_videos?: unknown }).generated_videos
-  );
-
-  if (!hasCandidates && !hasGeneratedVideos) {
-    return {
-      ok: false,
-      result: {
-        success: false,
-        provider,
-        status,
-        error: "Veo response is missing generated_videos or candidates data.",
-        details: payload,
-      },
-    };
-  }
-
-  return { ok: true, payload: recordPayload };
-}
-
-function parseVeoVideoResponse(data: unknown): {
-  videos: GeneratedVideo[];
-  storyboard?: unknown;
-  metadata?: Record<string, unknown>;
-} {
-  const videos: GeneratedVideo[] = [];
-  let storyboard: unknown;
-  let metadata: Record<string, unknown> | undefined;
-
-  if (isRecord(data)) {
-    metadata = extractMetadata(data);
-    if (Array.isArray(data.candidates)) {
-      for (const candidate of data.candidates) {
-        if (!isRecord(candidate)) {
-          continue;
-        }
-
-        if (candidate.storyboard && storyboard === undefined) {
-          storyboard = candidate.storyboard;
-        }
-
-        const content = candidate.content;
-        if (isRecord(content) && Array.isArray(content.parts)) {
-          collectVideoParts(content.parts, videos);
-        }
-      }
-    }
-
-    if (Array.isArray(data.generated_videos)) {
-      for (const video of data.generated_videos) {
-        if (!isRecord(video)) {
-          continue;
-        }
-        const url = typeof video.url === "string" ? video.url : undefined;
-        const mimeType = typeof video.mime_type === "string" ? video.mime_type : undefined;
-        const base64 = typeof video.base64 === "string" ? video.base64 : undefined;
-        const posterImage = typeof video.poster_image === "string" ? video.poster_image : undefined;
-        const durationSeconds =
-          typeof video.duration_seconds === "number" ? video.duration_seconds : undefined;
-        const frameRate = typeof video.frame_rate === "number" ? video.frame_rate : undefined;
-        const frames = Array.isArray(video.frames)
-          ? video.frames.filter((entry): entry is string => typeof entry === "string")
-          : undefined;
-        videos.push({ url, mimeType, base64, posterImage, durationSeconds, frameRate, frames });
-      }
-    }
-  }
-
-  return { videos, storyboard, metadata };
-}
-
-function hasStructuredPlan(value: unknown): boolean {
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-
-  if (isRecord(value)) {
-    return Object.keys(value).length > 0;
-  }
-
-  return false;
-}
-
-function metadataHasStructuredPlan(
-  metadata: Record<string, unknown> | undefined
-): boolean {
-  if (!metadata) {
-    return false;
-  }
-
-  const planKeys = [
-    "storyboard",
-    "plan",
-    "plan_json",
-    "planJson",
-    "videoPlan",
-    "video_plan",
-    "response",
-    "text",
-  ];
-
-  return planKeys.some((key) => hasStructuredPlan(metadata[key]));
-}
-
-function parseNanoBananaResponse(data: unknown): LoopSequenceResult {
-  const frames: GeneratedImage[] = [];
-  let loopLength: number | null | undefined;
-  let frameRate: number | undefined;
-  let metadata: Record<string, unknown> | undefined;
-
-  if (isRecord(data)) {
-    const responseFrames = Array.isArray(data.frames)
-      ? data.frames
-      : Array.isArray(data.generated_frames)
-      ? data.generated_frames
-      : [];
-
-    for (const frame of responseFrames) {
-      if (!isRecord(frame)) {
-        if (typeof frame === "string") {
-          frames.push({ mimeType: "image/png", data: frame });
-        }
-        continue;
-      }
-
-      if (typeof frame.data === "string") {
-        const mimeType = typeof frame.mime_type === "string" ? frame.mime_type : "image/png";
-        frames.push({ mimeType, data: frame.data });
-      } else if (typeof frame.base64 === "string") {
-        const mimeType = typeof frame.mime_type === "string" ? frame.mime_type : "image/png";
-        frames.push({ mimeType, data: frame.base64 });
-      } else if (typeof frame.url === "string") {
-        frames.push({ mimeType: "image/url", data: frame.url });
-      }
-    }
-
-    if (typeof data.loop_length === "number") {
-      loopLength = data.loop_length;
-    } else if (typeof data.loopLength === "number") {
-      loopLength = data.loopLength;
-    }
-
-    if (typeof data.frame_rate === "number") {
-      frameRate = data.frame_rate;
-    } else if (typeof data.fps === "number") {
-      frameRate = data.fps;
-    }
-
-    metadata = extractMetadata(data);
-  }
-
-  return { frames, loopLength, frameRate, metadata };
-}
-
 function collectParts(
   parts: unknown[],
   images: GeneratedImage[],
@@ -845,45 +737,6 @@ function collectParts(
       const mimeType =
         typeof part.fileData.mimeType === "string" ? part.fileData.mimeType : "application/octet-stream";
       images.push({ mimeType, data: part.fileData.fileUri });
-    }
-  }
-}
-
-function collectVideoParts(parts: unknown[], videos: GeneratedVideo[]): void {
-  for (const part of parts) {
-    if (!isRecord(part)) {
-      continue;
-    }
-    if (isRecord(part.inlineData) && typeof part.inlineData.data === "string") {
-      const mimeType =
-        typeof part.inlineData.mimeType === "string"
-          ? part.inlineData.mimeType
-          : "video/mp4";
-      videos.push({ mimeType, base64: part.inlineData.data });
-      continue;
-    }
-    if (isRecord(part.fileData) && typeof part.fileData.fileUri === "string") {
-      const mimeType =
-        typeof part.fileData.mimeType === "string" ? part.fileData.mimeType : undefined;
-      videos.push({ url: part.fileData.fileUri, mimeType });
-      continue;
-    }
-    if (typeof part.text === "string") {
-      try {
-        const parsed = JSON.parse(part.text);
-        if (isRecord(parsed) && typeof parsed.url === "string") {
-          const mimeType = typeof parsed.mimeType === "string" ? parsed.mimeType : undefined;
-          const durationSeconds =
-            typeof parsed.durationSeconds === "number" ? parsed.durationSeconds : undefined;
-          const frameRate = typeof parsed.frameRate === "number" ? parsed.frameRate : undefined;
-          const frames = Array.isArray(parsed.frames)
-            ? parsed.frames.filter((entry: unknown): entry is string => typeof entry === "string")
-            : undefined;
-          videos.push({ url: parsed.url, mimeType, durationSeconds, frameRate, frames });
-        }
-      } catch {
-        // Ignore unstructured text
-      }
     }
   }
 }
@@ -923,12 +776,6 @@ function getServerGeminiApiKey(): string | undefined {
   );
 }
 
-function getServerVeoApiKey(): string | undefined {
-  return (
-    getNonEmptyString(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
-  );
-}
-
 function getNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -956,167 +803,17 @@ function logGeminiImageClientConfiguration(model: string) {
   });
 }
 
-function logVeoClientConfiguration({
-  model,
-  baseUrl,
-}: {
-  model: string;
-  baseUrl: string;
-}) {
-  if (veoClientLogged) {
+function logGeminiDirectorClientConfiguration(model: string) {
+  if (geminiDirectorClientLogged) {
     return;
   }
 
-  veoClientLogged = true;
+  geminiDirectorClientLogged = true;
   logGenerativeClientTarget({
-    provider: "Veo",
-    context: "director video",
-    baseUrl,
+    provider: "Gemini",
+    context: "director text",
+    baseUrl: GEMINI_API_URL,
     model,
-  });
-}
-
-function validateVeoModel(model: string | undefined): string | null {
-  if (!model) {
-    return "No Veo model is configured.";
-  }
-
-  if (!/^veo-[\w.-]*generate/i.test(model)) {
-    return `Veo model "${model}" is not valid for long-running video generation. Use a model ending in "-generate-preview" (e.g., "veo-3.1-generate-preview").`;
-  }
-
-  return null;
-}
-
-function extractOperationName(payload: unknown): string | null {
-  if (!isRecord(payload)) {
-    return null;
-  }
-
-  if (typeof payload.name === "string") {
-    return payload.name;
-  }
-
-  if (isRecord(payload.operation) && typeof payload.operation.name === "string") {
-    return payload.operation.name;
-  }
-
-  return null;
-}
-
-async function pollVeoVideoOperation(
-  operationName: string,
-  apiKey: string,
-  provider: string
-): Promise<
-  | { success: true; payload: unknown; status?: number }
-  | { success: false; result: DirectorCoreResult }
-> {
-  const operationUrl = buildVeoOperationUrl(operationName, apiKey);
-  const maxAttempts = 30;
-  const pollIntervalMs = 1000;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    let response: Response;
-    try {
-      response = await fetch(operationUrl, { method: "GET" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to reach Veo operation endpoint.";
-      return {
-        success: false,
-        result: {
-          success: false,
-          provider,
-          error: `Veo operation request failed to send: ${message}`,
-        },
-      };
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown parse error.";
-      return {
-        success: false,
-        result: {
-          success: false,
-          provider,
-          status: response.status,
-          error: `Veo operation responded with invalid JSON: ${message}`,
-        },
-      };
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        result: {
-          success: false,
-          provider,
-          status: response.status,
-          error: extractErrorMessage(payload, "Veo video operation request failed."),
-          details: payload,
-        },
-      };
-    }
-
-    if (isRecord(payload) && payload.done) {
-      if (payload.error) {
-        return {
-          success: false,
-          result: {
-            success: false,
-            provider,
-            status: response.status,
-            error: extractErrorMessage(payload, "Veo video operation failed."),
-            details: payload,
-          },
-        };
-      }
-
-      const responsePayload = extractOperationPayload(payload);
-      return { success: true, payload: responsePayload, status: response.status };
-    }
-
-    await delay(pollIntervalMs);
-  }
-
-  return {
-    success: false,
-    result: {
-      success: false,
-      provider,
-      error: "Timed out waiting for Veo video generation to finish.",
-    },
-  };
-}
-
-function buildVeoOperationUrl(operationName: string, apiKey: string): string {
-  const normalizedBase = VEO_API_URL.replace(/\/+$/, "");
-  const normalizedName = operationName.replace(/^\/+/, "");
-  const baseUrl = operationName.startsWith("http")
-    ? operationName.replace(/\/+$/, "")
-    : `${normalizedBase}/${normalizedName}`;
-  const delimiter = baseUrl.includes("?") ? "&" : "?";
-  return `${baseUrl}${delimiter}key=${encodeURIComponent(apiKey)}`;
-}
-
-function extractOperationPayload(payload: Record<string, unknown>): unknown {
-  if (payload.response !== undefined) {
-    return payload.response;
-  }
-
-  if (isRecord(payload.result)) {
-    return payload.result;
-  }
-
-  return payload;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
   });
 }
 
@@ -1154,26 +851,35 @@ export function mapDirectorCoreSuccess(
       };
     }
     case "video_plan": {
-      const planText = stringifyStoryboard(result.storyboard);
+      const planTextFromResponse =
+        typeof result.storyboardText === "string" && result.storyboardText.trim().length
+          ? result.storyboardText.trim()
+          : stringifyStoryboard(result.storyboard);
+      const structuredPlan =
+        result.storyboard ?? (planTextFromResponse ? tryParseJson(planTextFromResponse) : null);
       return {
         success: true,
         mode: result.mode,
         provider: result.provider,
-        text: planText,
-        fallbackText: planText,
-        result: (result.storyboard as unknown) ?? planText ?? null,
-        media: mapGeneratedVideosToMedia(result.videos),
+        text: planTextFromResponse,
+        fallbackText: planTextFromResponse,
+        result: structuredPlan ?? planTextFromResponse ?? null,
+        media: [],
         metadata: result.metadata ?? null,
       };
     }
     case "loop_sequence": {
       const media = mapLoopSequenceToMedia(result.loop);
+      const loopText =
+        typeof result.loop.metadata?.rawText === "string"
+          ? result.loop.metadata.rawText
+          : null;
       return {
         success: true,
         mode: result.mode,
         provider: result.provider,
-        text: null,
-        fallbackText: null,
+        text: loopText,
+        fallbackText: loopText,
         result: result.loop ?? null,
         media,
         metadata: result.loop.metadata ?? null,
@@ -1196,62 +902,6 @@ function mapGeneratedImagesToMedia(images: GeneratedImage[]): DirectorMediaAsset
       caption: image.altText ?? null,
     } satisfies DirectorMediaAsset;
   });
-}
-
-function mapGeneratedVideosToMedia(videos: GeneratedVideo[]): DirectorMediaAsset[] {
-  return videos.map((video, index) => {
-    const poster = partitionAssetSource(video.posterImage);
-    const frames = Array.isArray(video.frames)
-      ? video.frames
-          .map((frame, frameIndex) =>
-            mapVideoFrame(frame, frameIndex, video.mimeType)
-          )
-          .filter((frame): frame is DirectorMediaAssetFrame => Boolean(frame))
-      : undefined;
-
-    const asset: DirectorMediaAsset = {
-      id: video.url ?? video.base64 ?? `video-${index}`,
-      kind: "video",
-      url: video.url ?? null,
-      base64: video.base64 ?? null,
-      mimeType: video.mimeType ?? null,
-      posterUrl: poster?.kind === "url" ? poster.value : null,
-      posterBase64: poster?.kind === "base64" ? poster.value : null,
-      durationSeconds: video.durationSeconds ?? null,
-      frameRate: video.frameRate ?? null,
-      frames,
-    };
-
-    return asset;
-  });
-}
-
-function mapVideoFrame(
-  value: string,
-  frameIndex: number,
-  mimeType?: string | null
-): DirectorMediaAssetFrame | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const source = partitionAssetSource(value);
-  if (!source) {
-    return undefined;
-  }
-
-  const frame: DirectorMediaAssetFrame = {
-    id: `frame-${frameIndex}`,
-    mimeType: mimeType ?? null,
-  };
-
-  if (source.kind === "url") {
-    frame.url = source.value;
-  } else {
-    frame.base64 = source.value;
-  }
-
-  return frame;
 }
 
 function mapLoopSequenceToMedia(loop: LoopSequenceResult): DirectorMediaAsset[] {

@@ -7,6 +7,23 @@ export type DirectorMode =
   | VideoPlanMode
   | LoopSequenceMode;
 
+export type VisualGlossaryOption = {
+  id: string;
+  label: string;
+  tooltip: string;
+  promptSnippet: string;
+};
+
+export type VisualOptionGlossary = {
+  cameraAngles: VisualGlossaryOption[];
+  shotSizes: VisualGlossaryOption[];
+  composition: VisualGlossaryOption[];
+  cameraMovement: VisualGlossaryOption[];
+  lightingStyles: VisualGlossaryOption[];
+  colorPalettes: VisualGlossaryOption[];
+  atmosphere: VisualGlossaryOption[];
+};
+
 export type ImagePromptPayload = {
   vision_seed_text: string;
   model: "sdxl" | "flux" | "illustrious";
@@ -19,6 +36,7 @@ export type ImagePromptPayload = {
     colorPalettes: string[];
     atmosphere: string[];
   };
+  glossary: VisualOptionGlossary;
   mood_profile: string | null;
   constraints: string | null;
 };
@@ -95,15 +113,15 @@ export type DirectorCoreSuccess =
   | {
       success: true;
       mode: "video_plan";
-      provider: string;
-      videos: GeneratedVideo[];
+      provider: "gemini";
       storyboard?: unknown;
+      storyboardText?: string;
       metadata?: Record<string, unknown>;
     }
   | {
       success: true;
       mode: "loop_sequence";
-      provider: "nano-banana";
+      provider: "gemini";
       loop: LoopSequenceResult;
     };
 
