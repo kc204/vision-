@@ -48,26 +48,34 @@ function createVideoSuccess(): DirectorCoreSuccess {
   return {
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
-    videos: [
-      {
-        url: "https://cdn.example/video.mp4",
-        mimeType: "video/mp4",
-        posterImage: "data:image/png;base64,iVBOR",
-        frames: ["https://cdn.example/frame.png"],
-        durationSeconds: 30,
-        frameRate: 24,
-      },
-    ],
+    provider: "gemini",
     storyboard,
+    text: JSON.stringify(storyboard),
+    metadata: { rawText: JSON.stringify(storyboard) },
   };
 }
 
 function createLoopSuccess(): DirectorCoreSuccess {
   const loop: LoopSequenceResult = {
-    frames: [
-      { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==", altText: "First" },
-      { mimeType: "image/png", data: "https://cdn.example/frame.png", altText: "Second" },
+    cycles: [
+      {
+        segment_title: "Pulse",
+        scene_description: "Neon rain over rooftops",
+        main_subject: "Skater",
+        camera_movement: "Orbit",
+        visual_tone: "Electric",
+        motion: "Slow spin",
+        mood: "Hypnotic",
+        narrative: "The city breathes",
+        continuity_lock: {
+          subject_identity: "Skater silhouette",
+          lighting_and_palette: "Violet and cyan",
+          camera_grammar: "35mm",
+          environment_motif: "Billboards",
+          emotional_trajectory: "Cycle resets",
+        },
+        acceptance_check: ["Return to start pose"],
+      },
     ],
     loopLength: 4,
     frameRate: 12,
@@ -77,8 +85,10 @@ function createLoopSuccess(): DirectorCoreSuccess {
   return {
     success: true,
     mode: "loop_sequence",
-    provider: "nano-banana",
+    provider: "gemini",
     loop,
+    text: JSON.stringify(loop),
+    metadata: { rawText: JSON.stringify(loop) },
   };
 }
 
@@ -111,15 +121,12 @@ test("mapDirectorCoreSuccess preserves prompt-only Gemini payloads", () => {
   assert.equal(response.media?.length, 0);
 });
 
-test("mapDirectorCoreSuccess stringifies video plans and media", () => {
+test("mapDirectorCoreSuccess stringifies video plans", () => {
   const response = mapDirectorCoreSuccess(createVideoSuccess());
 
   assert.equal(response.mode, "video_plan");
   assert.ok(response.text?.includes("thumbnailConcept"));
-  assert.equal(response.media?.length, 1);
-  assert.equal(response.media?.[0]?.url, "https://cdn.example/video.mp4");
-  assert.equal(response.media?.[0]?.posterUrl, "data:image/png;base64,iVBOR");
-  assert.equal(response.media?.[0]?.frames?.[0]?.url, "https://cdn.example/frame.png");
+  assert.equal(response.media?.length, 0);
 });
 
 test("mapDirectorCoreSuccess returns plan-only video responses", () => {
@@ -149,9 +156,9 @@ test("mapDirectorCoreSuccess returns plan-only video responses", () => {
   const response = mapDirectorCoreSuccess({
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
-    videos: [],
+    provider: "gemini",
     storyboard,
+    text: JSON.stringify(storyboard),
   });
 
   assert.equal(response.success, true);
@@ -161,17 +168,14 @@ test("mapDirectorCoreSuccess returns plan-only video responses", () => {
   assert.equal(response.result, storyboard);
 });
 
-test("mapDirectorCoreSuccess attaches loop frames", () => {
+test("mapDirectorCoreSuccess returns loop plans", () => {
   const response = mapDirectorCoreSuccess(createLoopSuccess());
 
   assert.equal(response.mode, "loop_sequence");
-  assert.equal(response.media?.length, 1);
-  assert.equal(response.media?.[0]?.frames?.length, 2);
-  assert.equal(response.media?.[0]?.frameRate, 12);
-  assert.equal(response.media?.[0]?.durationSeconds, 4);
-  assert.equal(response.media?.[0]?.frames?.[1]?.url, "https://cdn.example/frame.png");
+  assert.equal(response.media?.length, 0);
+  assert.ok(response.text?.includes("Neon rain"));
   const loopResult = response.result as LoopSequenceResult | null;
   assert.ok(loopResult);
-  assert.equal(loopResult?.frames.length, 2);
+  assert.equal(loopResult?.cycles.length, 1);
   assert.equal(loopResult?.loopLength, 4);
 });

@@ -49,11 +49,11 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                 <span className="text-xs uppercase tracking-wide text-slate-500">Provider access</span>
                 <span className="font-medium text-white">Managed by Director Core</span>
                 <span className="text-xs text-slate-400">
-                  Requests route through server-provisioned Gemini, Veo, and Nano Banana credentials.
+                  Requests route through server-provisioned Gemini credentials.
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {["Gemini", "Veo", "Nano Banana"].map((label) => (
+                {["Gemini"].map((label) => (
                   <span
                     key={label}
                     className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 ring-1 ring-white/10"

@@ -48,7 +48,7 @@ export default function HomePage() {
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
           <h2 className="text-xl font-semibold text-white">YouTube Cinematic Director</h2>
           <p className="mt-2 text-sm text-slate-300">
-            Turn a script into Veo-ready scene JSON with continuity locks, pacing notes, and a standout thumbnail concept.
+            Turn a script into Gemini-ready scene JSON with continuity locks, pacing notes, and a standout thumbnail concept.
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6">

@@ -18,8 +18,6 @@ type ValidationResult<T> =
 
 type ProviderKeyBundle = {
   geminiApiKey?: string;
-  veoApiKey?: string;
-  nanoBananaApiKey?: string;
 };
 
 export async function POST(request: Request) {
@@ -48,14 +46,6 @@ export async function POST(request: Request) {
 
   if (providerKeys.geminiApiKey) {
     credentials.gemini = { apiKey: providerKeys.geminiApiKey };
-  }
-
-  if (providerKeys.veoApiKey) {
-    credentials.veo = { apiKey: providerKeys.veoApiKey };
-  }
-
-  if (providerKeys.nanoBananaApiKey) {
-    credentials.nanoBanana = { apiKey: providerKeys.nanoBananaApiKey };
   }
 
   const requireClientKey = shouldRequireClientApiKey(validation.value.mode);
@@ -115,18 +105,6 @@ function extractProviderKeys(
     keys.geminiApiKey = geminiHeaderKey;
   }
 
-  const veoHeaderKey = normalizeApiKey(getHeaderValue(request, ["x-veo-api-key"]));
-  if (veoHeaderKey) {
-    keys.veoApiKey = veoHeaderKey;
-  }
-
-  const nanoHeaderKey = normalizeApiKey(
-    getHeaderValue(request, ["x-nano-banana-api-key"])
-  );
-  if (nanoHeaderKey) {
-    keys.nanoBananaApiKey = nanoHeaderKey;
-  }
-
   const headerKey = normalizeApiKey(
     getHeaderValue(request, ["x-provider-api-key"])
   );
@@ -174,35 +152,6 @@ function assignProviderKeysFromRecord(
       target.geminiApiKey = geminiKey;
     }
   }
-
-  if (!target.veoApiKey) {
-    const veoKey = findFirstKey(source, [
-      "veo",
-      "veoApiKey",
-      "veo_api_key",
-      "video",
-      "videoApiKey",
-      "video_api_key",
-    ]);
-    if (veoKey) {
-      target.veoApiKey = veoKey;
-    }
-  }
-
-  if (!target.nanoBananaApiKey) {
-    const nanoKey = findFirstKey(source, [
-      "nanoBanana",
-      "nano_banana",
-      "nanoBananaApiKey",
-      "nano_banana_api_key",
-      "loop",
-      "loopApiKey",
-      "loop_api_key",
-    ]);
-    if (nanoKey) {
-      target.nanoBananaApiKey = nanoKey;
-    }
-  }
 }
 
 function assignKeyForMode(
@@ -210,23 +159,8 @@ function assignKeyForMode(
   mode: DirectorRequest["mode"],
   value: string
 ) {
-  switch (mode) {
-    case "loop_sequence":
-      if (!target.nanoBananaApiKey) {
-        target.nanoBananaApiKey = value;
-      }
-      break;
-    case "video_plan":
-      if (!target.veoApiKey) {
-        target.veoApiKey = value;
-      }
-      break;
-    case "image_prompt":
-    default:
-      if (!target.geminiApiKey) {
-        target.geminiApiKey = value;
-      }
-      break;
+  if (!target.geminiApiKey) {
+    target.geminiApiKey = value;
   }
 }
 
@@ -267,41 +201,15 @@ function hasRequiredProviderKey(
   mode: DirectorRequest["mode"],
   providerKeys: ProviderKeyBundle
 ): boolean {
-  switch (mode) {
-    case "loop_sequence":
-      return Boolean(
-        providerKeys.nanoBananaApiKey ?? getServerNanoBananaApiKey()
-      );
-    case "video_plan":
-      return Boolean(providerKeys.veoApiKey ?? getServerVeoApiKey());
-    case "image_prompt":
-    default:
-      return Boolean(providerKeys.geminiApiKey ?? getServerGeminiApiKey());
-  }
+  return Boolean(providerKeys.geminiApiKey ?? getServerGeminiApiKey());
 }
 
 function hasServerCredentialForMode(mode: DirectorRequest["mode"]): boolean {
-  switch (mode) {
-    case "loop_sequence":
-      return Boolean(getServerNanoBananaApiKey());
-    case "video_plan":
-      return Boolean(getServerVeoApiKey());
-    case "image_prompt":
-    default:
-      return Boolean(getServerGeminiApiKey());
-  }
+  return Boolean(getServerGeminiApiKey());
 }
 
 function getMissingKeyMessage(mode: DirectorRequest["mode"]): string {
-  switch (mode) {
-    case "loop_sequence":
-      return "Provide a Nano Banana API key via the request or set NANO_BANANA_API_KEY.";
-    case "video_plan":
-      return "Provide a Veo API key via the request or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.";
-    case "image_prompt":
-    default:
-      return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
-  }
+  return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
 }
 
 function getServerGeminiApiKey(): string | undefined {
@@ -309,16 +217,6 @@ function getServerGeminiApiKey(): string | undefined {
     getEnvApiKey(process.env.GEMINI_API_KEY) ??
     getEnvApiKey(process.env.GOOGLE_API_KEY)
   );
-}
-
-function getServerVeoApiKey(): string | undefined {
-  return (
-    getEnvApiKey(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
-  );
-}
-
-function getServerNanoBananaApiKey(): string | undefined {
-  return getEnvApiKey(process.env.NANO_BANANA_API_KEY);
 }
 
 function getEnvApiKey(value: string | undefined): string | undefined {

@@ -66,20 +66,10 @@ export type GeneratedImage = {
   altText?: string;
 };
 
-export type GeneratedVideo = {
-  url?: string;
-  mimeType?: string;
-  base64?: string;
-  posterImage?: string;
-  durationSeconds?: number;
-  frameRate?: number;
-  frames?: string[];
-};
-
 export type LoopSequenceResult = {
-  frames: GeneratedImage[];
+  cycles: LoopCycleJSON[];
   loopLength?: number | null;
-  frameRate?: number;
+  frameRate?: number | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -95,16 +85,18 @@ export type DirectorCoreSuccess =
   | {
       success: true;
       mode: "video_plan";
-      provider: string;
-      videos: GeneratedVideo[];
+      provider: "gemini";
       storyboard?: unknown;
       metadata?: Record<string, unknown>;
+      text?: string;
     }
   | {
       success: true;
       mode: "loop_sequence";
-      provider: "nano-banana";
-      loop: LoopSequenceResult;
+      provider: "gemini";
+      loop?: LoopSequenceResult;
+      metadata?: Record<string, unknown>;
+      text?: string;
     };
 
 export type DirectorCoreError = {

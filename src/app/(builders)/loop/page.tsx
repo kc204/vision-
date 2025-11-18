@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
-import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
-  DirectorMediaAsset,
   DirectorRequest,
   DirectorResponse,
   DirectorSuccessResponse,
@@ -100,7 +98,6 @@ export default function LoopBuilderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<LoopCycleJSON[] | null>(null);
-  const [loopMediaAssets, setLoopMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [loopSummary, setLoopSummary] = useState<LoopSummary | null>(null);
   const [useSampleLoop, setUseSampleLoop] = useState(false);
   const [providerApiKey, setProviderApiKey] = useState("");
@@ -138,7 +135,6 @@ export default function LoopBuilderPage() {
 
     setFiles([]);
     setCycles(null);
-    setLoopMediaAssets([]);
     setLoopSummary(null);
     setError(null);
   }, [useSampleLoop]);
@@ -158,7 +154,6 @@ export default function LoopBuilderPage() {
     setIsSubmitting(true);
     setError(null);
     setCycles(null);
-    setLoopMediaAssets([]);
     setLoopSummary(null);
 
     try {
@@ -232,18 +227,11 @@ export default function LoopBuilderPage() {
       const loopResult = getLoopSequenceResult(rawResponseJson);
 
       if (!loopResult) {
-        const fallbackCycles = extractFallbackLoopCycles(rawResponseJson);
-        if (fallbackCycles?.length) {
-          setCycles(fallbackCycles);
-          return;
-        }
-
         throw new Error("Director Core response did not include loop data");
       }
 
       const loopCycles = extractLoopCyclesFromLoop(loopResult);
       setCycles(loopCycles.length ? loopCycles : null);
-      setLoopMediaAssets(rawResponseJson.media ?? []);
       setLoopSummary(extractLoopSummary(loopResult));
     } catch (submissionError) {
       console.error(submissionError);
@@ -340,7 +328,7 @@ export default function LoopBuilderPage() {
         />
 
         <ServerCredentialNotice
-          description="Loop synthesis routes through the server's Nano Banana access."
+          description="Loop synthesis routes through the server's Gemini access."
           helperText="Predictive loop cycles are authenticated automatically—no provider keys to manage."
         />
 
@@ -400,15 +388,13 @@ export default function LoopBuilderPage() {
       </form>
 
       <aside className="space-y-6">
-        {!cycles && !loopMediaAssets.length && !error ? (
+        {!cycles && !error ? (
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
-            Loop cycles and frames will appear here once generated.
+            Loop cycles will appear here once generated.
           </div>
         ) : null}
 
         {loopSummary ? <LoopMetadataCard summary={loopSummary} /> : null}
-
-        <GeneratedMediaGallery assets={loopMediaAssets} title="Loop frames" />
 
         {cycles ? (
           <div className="space-y-4">
@@ -643,16 +629,31 @@ function isLoopSequenceSuccess(
 function getLoopSequenceResult(
   result: LoopSequenceSuccess
 ): LoopSequenceResult | null {
-  const candidate = result.result;
-  if (!candidate || typeof candidate !== "object") {
-    return null;
+  const candidates: unknown[] = [];
+
+  if (result.result !== undefined && result.result !== null) {
+    candidates.push(result.result);
   }
 
-  if (!Array.isArray((candidate as LoopSequenceResult).frames)) {
-    return null;
+  if (isRecord(result.metadata)) {
+    candidates.push(...collectLoopMetadataCandidates(result.metadata));
   }
 
-  return candidate as LoopSequenceResult;
+  const textCandidates = [result.text, result.fallbackText];
+  for (const text of textCandidates) {
+    if (typeof text === "string" && text.trim().length) {
+      candidates.push(text);
+    }
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizeLoopSequenceCandidate(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
 }
 
 function formatDirectorError(result: DirectorErrorResponse): string {
@@ -684,22 +685,13 @@ function extractLoopSummary(loop: LoopSequenceResult | null | undefined): LoopSu
 }
 
 function extractLoopCyclesFromLoop(loop: LoopSequenceResult | null | undefined): LoopCycleJSON[] {
-  if (!loop) {
-    return [];
-  }
-
-  const metadataCycles = parseLoopCyclesFromMetadata(loop.metadata);
-  if (metadataCycles.length) {
-    return metadataCycles;
-  }
-
-  return parseLoopCyclesFromFrames(loop.frames);
+  return loop?.cycles ?? [];
 }
 
 function parseLoopCyclesFromMetadata(
-  metadata: LoopSequenceResult["metadata"]
+  metadata: Record<string, unknown> | undefined
 ): LoopCycleJSON[] {
-  if (!metadata || typeof metadata !== "object") {
+  if (!metadata) {
     return [];
   }
 
@@ -714,9 +706,7 @@ function parseLoopCyclesFromMetadata(
 
   for (const key of candidateKeys) {
     if (key in metadata) {
-      const normalized = normalizeLoopCycleEntry(
-        (metadata as Record<string, unknown>)[key]
-      );
+      const normalized = normalizeLoopCycleEntry(metadata[key]);
       if (normalized.length) {
         return normalized;
       }
@@ -726,68 +716,100 @@ function parseLoopCyclesFromMetadata(
   return [];
 }
 
-function parseLoopCyclesFromFrames(frames: LoopSequenceResult["frames"]): LoopCycleJSON[] {
-  const cycles: LoopCycleJSON[] = [];
-  for (const frame of frames) {
-    if (!frame.altText) {
-      continue;
-    }
-    const parsed = normalizeLoopCycleEntry(frame.altText);
-    if (parsed.length) {
-      cycles.push(...parsed);
+function collectLoopMetadataCandidates(source: Record<string, unknown>): unknown[] {
+  const keys = [
+    "loop",
+    "loop_plan",
+    "loopPlan",
+    "loop_json",
+    "loopJson",
+    "plan",
+    "planJson",
+    "rawText",
+    "raw_text",
+    "text",
+  ];
+  const values: unknown[] = [];
+  for (const key of keys) {
+    if (key in source) {
+      values.push(source[key]);
     }
   }
-  return cycles;
+  return values;
 }
 
-function extractFallbackLoopCycles(
-  result: LoopSequenceSuccess
-): LoopCycleJSON[] | null {
-  const legacyText = getLegacyLoopText(result);
-  if (!legacyText) {
+function normalizeLoopSequenceCandidate(source: unknown): LoopSequenceResult | null {
+  if (!source) {
     return null;
   }
-  return parseLoopCyclesFromJsonString(legacyText);
-}
 
-function getLegacyLoopText(result: LoopSequenceSuccess): string | null {
-  const textCandidates = [result.text, result.fallbackText];
-  for (const candidate of textCandidates) {
-    if (typeof candidate === "string" && candidate.trim().length) {
-      return candidate;
-    }
+  if (typeof source === "string") {
+    return parseLoopSequenceString(source);
   }
 
-  const loopMetadata = getLoopSequenceResult(result)?.metadata;
-  const metadata = loopMetadata && typeof loopMetadata === "object"
-    ? (loopMetadata as Record<string, unknown>)
-    : (isRecord(result.metadata) ? result.metadata : null);
+  if (Array.isArray(source)) {
+    const cycles = normalizeLoopCycleEntry(source);
+    return cycles.length ? { cycles } : null;
+  }
 
-  if (metadata) {
-    const keys = ["rawText", "raw_text", "text", "loop_json", "loopJson"];
-    for (const key of keys) {
-      const value = metadata[key];
-      if (typeof value === "string" && value.trim().length) {
-        return value;
-      }
+  if (!isRecord(source)) {
+    return null;
+  }
+
+  if (Array.isArray(source.cycles)) {
+    const cycles = normalizeLoopCycleEntry(source.cycles);
+    if (!cycles.length) {
+      return null;
     }
+    return {
+      cycles,
+      loopLength: extractLoopMetric(source, ["loop_length", "loopLength"]),
+      frameRate: extractLoopMetric(source, ["frame_rate", "frameRate", "fps"]),
+      metadata: extractLoopMetadata(source.metadata),
+    };
+  }
+
+  const metadataCycles = parseLoopCyclesFromMetadata(source);
+  if (metadataCycles.length) {
+    return {
+      cycles: metadataCycles,
+      loopLength: extractLoopMetric(source, ["loop_length", "loopLength"]),
+      frameRate: extractLoopMetric(source, ["frame_rate", "frameRate", "fps"]),
+      metadata: extractLoopMetadata(source.metadata),
+    };
   }
 
   return null;
 }
 
-function parseLoopCyclesFromJsonString(text: string): LoopCycleJSON[] | null {
+function parseLoopSequenceString(text: string): LoopSequenceResult | null {
   const trimmed = text.trim();
   if (!trimmed) {
     return null;
   }
   try {
     const parsed = JSON.parse(trimmed);
-    const normalized = normalizeLoopCycleEntry(parsed);
-    return normalized.length ? normalized : null;
+    return normalizeLoopSequenceCandidate(parsed);
   } catch {
     return null;
   }
+}
+
+function extractLoopMetric(
+  source: Record<string, unknown>,
+  keys: string[]
+): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function extractLoopMetadata(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function normalizeLoopCycleEntry(source: unknown): LoopCycleJSON[] {
