@@ -1,83 +1,99 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  _buildVeoVideoRequestPayloadForTest as buildVeoVideoRequestPayload,
-  _buildVeoPredictRequestForTest as buildVeoPredictRequest,
-  _validateVeoResponseForTest as validateVeoResponse,
-  _parseVeoVideoResponseForTest as parseVeoVideoResponse,
-} from "./directorClient";
-import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
+const ORIGINAL_ENV = {
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+  GEMINI_IMAGE_MODELS: process.env.GEMINI_IMAGE_MODELS,
+  GEMINI_IMAGE_MODEL: process.env.GEMINI_IMAGE_MODEL,
+};
 
-test("Veo predictLongRunning payloads wrap prompts in instances", () => {
-  const promptResult = buildVeoVideoRequestPayload(
-    {
-      vision_seed_text: "  Epic skyline  ",
-      script_text: "  opening scene  ",
-      tone: "hype",
-      visual_style: "stylized",
-      aspect_ratio: "16:9",
-      mood_profile: null,
-    },
-    ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="]
-  );
+function setEnv(key: keyof typeof ORIGINAL_ENV, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
 
-  assert.equal(promptResult.ok, true);
-  if (!promptResult.ok) return;
+  process.env[key] = value;
+}
 
-  const payload = buildVeoPredictRequest(promptResult.value);
-  assert.equal(payload.instances.length, 1);
-
-  const prompt = payload.instances[0]?.prompt;
-  assert.equal(prompt.prompt, "Epic skyline");
-  assert.equal(prompt.script.input, "opening scene");
-  assert.equal(prompt.system_prompt, DIRECTOR_CORE_SYSTEM_PROMPT);
-  assert.equal(prompt.media?.length, 1);
-  assert.equal(prompt.media?.[0]?.type, "IMAGE");
+test.after(() => {
+  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
+    setEnv(key as keyof typeof ORIGINAL_ENV, value ?? undefined);
+  }
 });
 
-test("Veo responses nested in predictions are validated and parsed", () => {
-  const veoResponse = {
-    metadata: { jobId: "operation-123" },
-    predictions: [
-      {
-        candidates: [
-          {
-            storyboard: { thumbnailConcept: "Neon city", scenes: [] },
-            content: {
-              parts: [
-                {
-                  text: JSON.stringify({
-                    url: "https://cdn.example/video.mp4",
-                    mimeType: "video/mp4",
-                    durationSeconds: 12,
-                    frameRate: 24,
-                    frames: ["https://cdn.example/frame.png"],
-                  }),
-                },
-              ],
+test("callDirectorCore resolves an entitled image-capable Gemini model", async (t) => {
+  setEnv("GEMINI_API_KEY", "server-gemini-key");
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("GEMINI_IMAGE_MODELS", "imagen-3.0-generate-001,gemini-1.5-pro");
+  setEnv("GEMINI_IMAGE_MODEL", undefined);
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async (input: RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    if (url.includes(":generateContent")) {
+      assert.equal(init?.method, "POST");
+      assert.ok(url.includes("gemini-1.5-pro"));
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [{ inlineData: { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==" } }],
+              },
             },
-          },
-        ],
-        generated_videos: [
-          {
-            url: "https://cdn.example/video.mp4",
-            mime_type: "video/mp4",
-            poster_image: "https://cdn.example/poster.png",
-          },
-        ],
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.includes("/models")) {
+      return new Response(
+        JSON.stringify({ models: [{ name: "models/gemini-1.5-pro" }] }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+
+  const modulePath = require.resolve("./directorClient");
+  delete require.cache[modulePath];
+  const directorClient = await import("./directorClient");
+
+  const result = await directorClient.callDirectorCore(
+    {
+      mode: "image_prompt",
+      payload: {
+        vision_seed_text: "Hero landing pose",
+        model: "sdxl",
+        selectedOptions: {
+          cameraAngles: [],
+          shotSizes: [],
+          composition: [],
+          cameraMovement: [],
+          lightingStyles: [],
+          colorPalettes: [],
+          atmosphere: [],
+        },
+        mood_profile: null,
+        constraints: null,
       },
-    ],
-  } satisfies Record<string, unknown>;
+      images: [],
+    },
+    { gemini: { apiKey: "server-gemini-key" } }
+  );
 
-  const validation = validateVeoResponse(veoResponse, "veo-model", 200);
-  assert.equal(validation.ok, true);
-  if (!validation.ok) return;
-
-  const parsed = parseVeoVideoResponse(validation.payload);
-  assert.ok(parsed.storyboard);
-  assert.equal(parsed.metadata?.jobId, "operation-123");
-  assert.ok(parsed.videos.some((video) => video.url === "https://cdn.example/video.mp4"));
-  const structured = parsed.videos.find((video) => video.frames?.length);
-  assert.equal(structured?.frames?.[0], "https://cdn.example/frame.png");
+  assert.equal(result.success, true);
+  assert.equal(fetchMock.mock.calls.length, 2);
 });

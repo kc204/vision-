@@ -15,6 +15,7 @@
     "src/lib/directorClient.test.ts",
     "src/lib/googleModels.ts",
     "src/lib/googleModels.test.ts",
+    "src/lib/directorClient.test.ts",
     "src/lib/directorResponseAdapter.test.ts",
     "src/lib/directorTypes.ts",
     "src/app/api/director/route.ts",
