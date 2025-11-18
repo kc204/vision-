@@ -80,7 +80,8 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json(result);
+    const mappedResult = directorClient.mapDirectorCoreSuccess(result);
+    return NextResponse.json(mappedResult);
   } catch (error) {
     console.error("Director Core invocation failed", error);
 
