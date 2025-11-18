@@ -9,9 +9,13 @@ import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
   DirectorMediaAsset,
+  DirectorMediaAssetFrame,
+  DirectorMode,
   DirectorRequest,
   DirectorSuccessResponse,
   GeneratedImage,
+  LoopSequenceResult,
+  LoopCycleJSON,
 } from "./directorTypes";
 
 const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
@@ -22,15 +26,25 @@ const RAW_GEMINI_IMAGE_MODELS = parseModelList(
   [...DEFAULT_GEMINI_IMAGE_MODELS]
 );
 
-const DEFAULT_GEMINI_TEXT_MODELS = ["gemini-2.5-pro"] as const;
-const RAW_GEMINI_TEXT_MODELS = parseModelList(
-  process.env.GEMINI_TEXT_MODELS ?? process.env.GEMINI_TEXT_MODEL,
-  [...DEFAULT_GEMINI_TEXT_MODELS]
+const DEFAULT_GEMINI_DIRECTOR_MODELS = ["gemini-2.5-pro"] as const;
+const RAW_GEMINI_DIRECTOR_MODELS = parseModelList(
+  process.env.GEMINI_DIRECTOR_MODELS ??
+    process.env.GEMINI_DIRECTOR_MODEL ??
+    process.env.GEMINI_CHAT_MODELS ??
+    process.env.GEMINI_CHAT_MODEL,
+  [...DEFAULT_GEMINI_DIRECTOR_MODELS]
 );
+
+type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
   context: "image",
   envVar: "GEMINI_IMAGE_MODELS",
+});
+
+assertNoLatestAliases(RAW_GEMINI_DIRECTOR_MODELS, {
+  context: "director",
+  envVar: "GEMINI_DIRECTOR_MODELS",
 });
 
 const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
@@ -42,22 +56,17 @@ const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
   }
 );
 
-assertNoLatestAliases(RAW_GEMINI_TEXT_MODELS, {
-  context: "director",
-  envVar: "GEMINI_TEXT_MODELS",
-});
-
-const GEMINI_TEXT_MODELS = enforceAllowedGeminiModels(
-  RAW_GEMINI_TEXT_MODELS,
+const GEMINI_DIRECTOR_MODELS = enforceAllowedGeminiModels(
+  RAW_GEMINI_DIRECTOR_MODELS,
   {
-    fallback: DEFAULT_GEMINI_TEXT_MODELS,
+    fallback: DEFAULT_GEMINI_DIRECTOR_MODELS,
     context: "director",
-    envVar: "GEMINI_TEXT_MODELS",
+    envVar: "GEMINI_DIRECTOR_MODELS",
   }
 );
 
 let geminiImageClientLogged = false;
-let geminiTextClientLogged = false;
+let geminiDirectorClientLogged = false;
 
 export type DirectorProviderCredentials = {
   gemini?: {
@@ -76,7 +85,7 @@ export async function callDirectorCore(
       case "video_plan":
         return await callGeminiVideoPlanProvider(req, credentials);
       case "loop_sequence":
-        return await callGeminiLoopSequenceProvider(req, credentials);
+        return await callGeminiLoopProvider(req, credentials);
       default:
         return {
           success: false,
@@ -126,7 +135,7 @@ async function callGeminiImageProvider(
 
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const parts = buildDirectorUserParts(req.mode, req.payload, req.images);
+  const parts = buildUserParts(req.mode, req.payload, req.images);
   const payload = {
     system_instruction: {
       role: "system",
@@ -208,86 +217,29 @@ async function callGeminiVideoPlanProvider(
   req: Extract<DirectorRequest, { mode: "video_plan" }>,
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
-  const response = await callGeminiTextModel(req, credentials);
-  if (!response.ok) {
-    return response.result;
-  }
-
-  const metadata = appendRawTextMetadata(response.metadata, response.text);
-
-  return {
-    success: true,
-    mode: "video_plan",
-    provider: "gemini",
-    metadata,
-    text: response.text,
-  };
-}
-
-async function callGeminiLoopSequenceProvider(
-  req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
-  credentials?: DirectorProviderCredentials
-): Promise<DirectorCoreResult> {
-  const response = await callGeminiTextModel(req, credentials);
-  if (!response.ok) {
-    return response.result;
-  }
-
-  const metadata = appendRawTextMetadata(response.metadata, response.text);
-
-  return {
-    success: true,
-    mode: "loop_sequence",
-    provider: "gemini",
-    metadata,
-    text: response.text,
-  };
-}
-
-type GeminiTextCallSuccess = {
-  ok: true;
-  text: string;
-  metadata?: Record<string, unknown>;
-};
-
-type GeminiTextCallFailure = {
-  ok: false;
-  result: DirectorCoreResult;
-};
-
-async function callGeminiTextModel(
-  req: Extract<DirectorRequest, { mode: "video_plan" | "loop_sequence" }>,
-  credentials?: DirectorProviderCredentials
-): Promise<GeminiTextCallSuccess | GeminiTextCallFailure> {
   const apiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
 
   if (!apiKey) {
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        error:
-          "Missing credentials for Gemini text generation. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
-        status: 401,
-      },
+      success: false,
+      provider: "gemini",
+      error:
+        "Missing credentials for Gemini video planning. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
+      status: 401,
     };
   }
 
-  const model = GEMINI_TEXT_MODELS[0];
+  const model = GEMINI_DIRECTOR_MODELS[0];
   if (!model) {
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        error: "No Gemini director model is configured.",
-        status: 500,
-      },
+      success: false,
+      provider: "gemini",
+      error: "No Gemini director model is configured.",
+      status: 500,
     };
   }
 
-  logGeminiTextClientConfiguration(model);
+  logGeminiDirectorClientConfiguration(model);
 
   const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
   const headers: Record<string, string> = {
@@ -295,10 +247,10 @@ async function callGeminiTextModel(
   };
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const parts = buildDirectorUserParts(req.mode, req.payload, req.images);
+  const parts = buildUserParts(req.mode, req.payload, req.images);
   const payload = {
     system_instruction: {
-      role: "system" as const,
+      role: "system",
       parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
     },
     contents: [
@@ -317,14 +269,11 @@ async function callGeminiTextModel(
       body: JSON.stringify(payload),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to reach Gemini provider.";
+    const message = error instanceof Error ? error.message : "Failed to reach Gemini director provider.";
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        error: `Gemini request failed to send: ${message}`,
-      },
+      success: false,
+      provider: "gemini",
+      error: `Gemini request failed to send: ${message}`,
     };
   }
 
@@ -334,26 +283,25 @@ async function callGeminiTextModel(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown parse error.";
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        status: response.status,
-        error: `Gemini responded with invalid JSON: ${message}`,
-      },
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: `Gemini responded with invalid JSON: ${message}`,
     };
   }
 
+async function callGeminiLoopSequenceProvider(
+  req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
+  credentials?: DirectorProviderCredentials
+): Promise<DirectorCoreResult> {
+  const response = await callGeminiTextModel(req, credentials);
   if (!response.ok) {
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        status: response.status,
-        error: extractErrorMessage(data, "Gemini director request failed."),
-        details: data,
-      },
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: extractErrorMessage(data, "Gemini video plan request failed."),
+      details: data,
     };
   }
 
@@ -361,23 +309,146 @@ async function callGeminiTextModel(
 
   if (!text) {
     return {
-      ok: false,
-      result: {
-        success: false,
-        provider: "gemini",
-        status: response.status,
-        error: "Gemini did not return any text in the response.",
-        details: data,
-      },
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: "Gemini did not return any storyboard text in the response.",
+      details: data,
     };
   }
 
-  return { ok: true, text, metadata };
+  const storyboard = tryParseJson(text);
+  const enrichedMetadata = mergeMetadataWithRawText(metadata, text);
+
+  return {
+    success: true,
+    mode: "video_plan",
+    provider: "gemini",
+    storyboard: storyboard ?? undefined,
+    storyboardText: text,
+    metadata: enrichedMetadata,
+  };
 }
 
-function buildDirectorUserParts(
-  mode: DirectorRequest["mode"],
-  payload: unknown,
+async function callGeminiLoopProvider(
+  req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
+  credentials?: DirectorProviderCredentials
+): Promise<DirectorCoreResult> {
+  const apiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
+  if (!apiKey) {
+    return {
+      success: false,
+      provider: "gemini",
+      error:
+        "Missing credentials for Gemini loop planning. Provide an API key or configure GEMINI_API_KEY or GOOGLE_API_KEY.",
+      status: 401,
+    };
+  }
+
+  const model = GEMINI_DIRECTOR_MODELS[0];
+  if (!model) {
+    return {
+      success: false,
+      provider: "gemini",
+      error: "No Gemini director model is configured.",
+      status: 500,
+    };
+  }
+
+  logGeminiDirectorClientConfiguration(model);
+
+  const endpoint = `${GEMINI_API_URL}/models/${encodeURIComponent(model)}:generateContent`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
+
+  const parts = buildUserParts(req.mode, req.payload, req.images);
+  const payload = {
+    system_instruction: {
+      role: "system",
+      parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
+    },
+    contents: [
+      {
+        role: "user" as const,
+        parts,
+      },
+    ],
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to reach Gemini loop provider.";
+    return {
+      success: false,
+      provider: "gemini",
+      error: `Gemini request failed to send: ${message}`,
+    };
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown parse error.";
+    return {
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: `Gemini responded with invalid JSON: ${message}`,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: extractErrorMessage(data, "Gemini loop request failed."),
+      details: data,
+    };
+  }
+
+  const { text, metadata } = parseGeminiTextResponse(data);
+  if (!text) {
+    return {
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: "Gemini did not return any loop plan text in the response.",
+      details: data,
+    };
+  }
+
+  const loopCycles = parseLoopCyclesFromText(text);
+  const loopMetadata = mergeMetadataWithRawText(metadata, text) ?? {};
+  if (loopCycles.length) {
+    loopMetadata.loop_cycles = loopCycles;
+  }
+
+  const loop: LoopSequenceResult = {
+    frames: [],
+    metadata: loopMetadata,
+  };
+
+  return {
+    success: true,
+    mode: "loop_sequence",
+    provider: "gemini",
+    loop,
+  };
+}
+
+function buildUserParts(
+  mode: DirectorMode,
+  payload: DirectorRequest["payload"],
   images: string[] | undefined
 ) {
   const parts: Array<
@@ -395,6 +466,180 @@ function buildDirectorUserParts(
   }
 
   return parts;
+}
+
+function parseGeminiTextResponse(data: unknown): {
+  text?: string;
+  metadata?: Record<string, unknown>;
+} {
+  const textChunks: string[] = [];
+  let metadata: Record<string, unknown> | undefined;
+
+  if (isRecord(data)) {
+    metadata = extractMetadata(data);
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    for (const candidate of candidates) {
+      if (!isRecord(candidate)) {
+        continue;
+      }
+      const content = candidate.content;
+      if (isRecord(content) && Array.isArray(content.parts)) {
+        collectTextParts(content.parts, textChunks);
+      }
+      if (Array.isArray(candidate.output)) {
+        collectTextParts(candidate.output, textChunks);
+      }
+    }
+  }
+
+  return {
+    text: textChunks.length ? textChunks.join("\n").trim() : undefined,
+    metadata,
+  };
+}
+
+function collectTextParts(parts: unknown[], textChunks: string[]): void {
+  for (const part of parts) {
+    if (!isRecord(part)) {
+      continue;
+    }
+    if (typeof part.text === "string") {
+      textChunks.push(part.text);
+    }
+  }
+}
+
+function mergeMetadataWithRawText(
+  metadata: Record<string, unknown> | undefined,
+  text: string
+): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return metadata;
+  }
+
+  const nextMetadata = metadata ? { ...metadata } : {};
+  if (typeof nextMetadata.rawText !== "string") {
+    nextMetadata.rawText = trimmed;
+  }
+  return nextMetadata;
+}
+
+function tryParseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseLoopCyclesFromText(text: string): LoopCycleJSON[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const parsed = tryParseJson(trimmed);
+  if (!parsed) {
+    return [];
+  }
+
+  return normalizeLoopCycleEntry(parsed);
+}
+
+function normalizeLoopCycleEntry(source: unknown): LoopCycleJSON[] {
+  if (!source) {
+    return [];
+  }
+
+  if (Array.isArray(source)) {
+    return source.flatMap((entry) => normalizeLoopCycleEntry(entry));
+  }
+
+  if (isLoopCycleJSON(source)) {
+    return [source];
+  }
+
+  if (isRecord(source)) {
+    const recordSource = source as Record<string, unknown>;
+    const nestedKeys = [
+      "loop_cycles",
+      "loopCycles",
+      "loop_plan",
+      "loopPlan",
+      "cycles",
+      "storyboard",
+      "scenes",
+      "sequence",
+    ];
+
+    for (const key of nestedKeys) {
+      if (recordSource[key] !== undefined) {
+        const nested = normalizeLoopCycleEntry(recordSource[key]);
+        if (nested.length) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
+function isLoopCycleJSON(value: unknown): value is LoopCycleJSON {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const requiredFields: Array<keyof LoopCycleJSON> = [
+    "segment_title",
+    "scene_description",
+    "main_subject",
+    "camera_movement",
+    "visual_tone",
+    "motion",
+    "mood",
+    "narrative",
+  ];
+
+  if (!requiredFields.every((field) => typeof record[field] === "string")) {
+    return false;
+  }
+
+  const continuity = record.continuity_lock;
+  if (!isRecord(continuity)) {
+    return false;
+  }
+
+  const continuityFields = [
+    "subject_identity",
+    "lighting_and_palette",
+    "camera_grammar",
+    "environment_motif",
+    "emotional_trajectory",
+  ];
+
+  if (!continuityFields.every((field) => typeof continuity[field] === "string")) {
+    return false;
+  }
+
+  if (
+    record.acceptance_check !== undefined &&
+    (!Array.isArray(record.acceptance_check) ||
+      !record.acceptance_check.every((entry) => typeof entry === "string"))
+  ) {
+    return false;
+  }
+
+  if (
+    record.sound_suggestion !== undefined &&
+    typeof record.sound_suggestion !== "string"
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function buildImageParts(images: string[] | undefined) {
@@ -472,47 +717,6 @@ function parseGeminiImageResponse(data: unknown): {
     promptText: textChunks.length ? textChunks.join("\n").trim() : undefined,
     metadata,
   };
-}
-
-function parseGeminiTextResponse(data: unknown): {
-  text?: string;
-  metadata?: Record<string, unknown>;
-} {
-  const textChunks: string[] = [];
-  let metadata: Record<string, unknown> | undefined;
-
-  if (isRecord(data)) {
-    metadata = extractMetadata(data);
-
-    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-    for (const candidate of candidates) {
-      if (!isRecord(candidate)) {
-        continue;
-      }
-      const content = candidate.content;
-      if (isRecord(content) && Array.isArray(content.parts)) {
-        collectTextParts(content.parts, textChunks);
-      }
-      if (Array.isArray(candidate.output)) {
-        collectTextParts(candidate.output, textChunks);
-      }
-    }
-  }
-
-const text = textChunks.map((chunk) => chunk.trim()).filter(Boolean).join("\n").trim();
-
-  return { text: text || undefined, metadata };
-}
-
-function collectTextParts(parts: unknown[], textChunks: string[]): void {
-  for (const part of parts) {
-    if (!isRecord(part)) {
-      continue;
-    }
-    if (typeof part.text === "string") {
-      textChunks.push(part.text);
-    }
-  }
 }
 
 function collectParts(
@@ -626,12 +830,12 @@ function logGeminiImageClientConfiguration(model: string) {
   });
 }
 
-function logGeminiTextClientConfiguration(model: string) {
-  if (geminiTextClientLogged) {
+function logGeminiDirectorClientConfiguration(model: string) {
+  if (geminiDirectorClientLogged) {
     return;
   }
 
-  geminiTextClientLogged = true;
+  geminiDirectorClientLogged = true;
   logGenerativeClientTarget({
     provider: "Gemini",
     context: "director text",
@@ -674,29 +878,38 @@ export function mapDirectorCoreSuccess(
       };
     }
     case "video_plan": {
-      const planText = result.text?.trim() ?? stringifyStoryboard(result.storyboard);
+      const planTextFromResponse =
+        typeof result.storyboardText === "string" && result.storyboardText.trim().length
+          ? result.storyboardText.trim()
+          : stringifyStoryboard(result.storyboard);
+      const structuredPlan =
+        result.storyboard ?? (planTextFromResponse ? tryParseJson(planTextFromResponse) : null);
       return {
         success: true,
         mode: result.mode,
         provider: result.provider,
-        text: planText,
-        fallbackText: planText,
-        result: (result.storyboard as unknown) ?? planText ?? null,
+        text: planTextFromResponse,
+        fallbackText: planTextFromResponse,
+        result: structuredPlan ?? planTextFromResponse ?? null,
         media: [],
         metadata: result.metadata ?? null,
       };
     }
     case "loop_sequence": {
-      const planText = result.text?.trim() ?? stringifyStoryboard(result.loop);
+      const media = mapLoopSequenceToMedia(result.loop);
+      const loopText =
+        typeof result.loop.metadata?.rawText === "string"
+          ? result.loop.metadata.rawText
+          : null;
       return {
         success: true,
         mode: result.mode,
         provider: result.provider,
-        text: planText,
-        fallbackText: planText,
-        result: result.loop ?? planText ?? null,
-        media: [],
-        metadata: result.metadata ?? null,
+        text: loopText,
+        fallbackText: loopText,
+        result: result.loop ?? null,
+        media,
+        metadata: result.loop.metadata ?? null,
       };
     }
     default:
@@ -716,6 +929,45 @@ function mapGeneratedImagesToMedia(images: GeneratedImage[]): DirectorMediaAsset
       caption: image.altText ?? null,
     } satisfies DirectorMediaAsset;
   });
+}
+
+function mapLoopSequenceToMedia(loop: LoopSequenceResult): DirectorMediaAsset[] {
+  if (!loop.frames.length) {
+    return [];
+  }
+
+  const frames = loop.frames.map((frame, index) => {
+    const source = partitionAssetSource(frame.data);
+    const frameAsset: DirectorMediaAssetFrame = {
+      id: frame.altText ?? `loop-frame-${index}`,
+      mimeType: frame.mimeType ?? null,
+      caption: frame.altText ?? null,
+    };
+
+    if (source?.kind === "url") {
+      frameAsset.url = source.value;
+    } else if (source?.kind === "base64") {
+      frameAsset.base64 = source.value;
+    }
+
+    return frameAsset;
+  });
+
+  const primary = frames.find((frame) => frame.base64 || frame.url);
+
+  return [
+    {
+      id: "loop-sequence",
+      kind: "image",
+      url: primary?.url ?? null,
+      base64: primary?.base64 ?? null,
+      mimeType: loop.frames[0]?.mimeType ?? null,
+      durationSeconds:
+        typeof loop.loopLength === "number" ? loop.loopLength : null,
+      frameRate: loop.frameRate ?? null,
+      frames,
+    },
+  ];
 }
 
 type AssetSource = { kind: "url" | "base64"; value: string };

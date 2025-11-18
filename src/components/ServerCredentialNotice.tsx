@@ -10,7 +10,7 @@ type ServerCredentialNoticeProps = {
 export function ServerCredentialNotice({
   title = "Server-managed credentials",
   description =
-    "Director Core routes every request through managed Gemini accounts.",
+    "Director Core routes every request through managed Gemini accounts on the server.",
   helperText = "No sign-in or API key entry is required in your browser.",
   className = "",
 }: ServerCredentialNoticeProps) {

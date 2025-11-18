@@ -53,14 +53,9 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {["Gemini"].map((label) => (
-                  <span
-                    key={label}
-                    className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 ring-1 ring-white/10"
-                  >
-                    {label}: Managed
-                  </span>
-                ))}
+                <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200 ring-1 ring-white/10">
+                  Gemini: Managed
+                </span>
               </div>
             </div>
           </div>

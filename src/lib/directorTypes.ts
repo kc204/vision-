@@ -7,6 +7,23 @@ export type DirectorMode =
   | VideoPlanMode
   | LoopSequenceMode;
 
+export type VisualGlossaryOption = {
+  id: string;
+  label: string;
+  tooltip: string;
+  promptSnippet: string;
+};
+
+export type VisualOptionGlossary = {
+  cameraAngles: VisualGlossaryOption[];
+  shotSizes: VisualGlossaryOption[];
+  composition: VisualGlossaryOption[];
+  cameraMovement: VisualGlossaryOption[];
+  lightingStyles: VisualGlossaryOption[];
+  colorPalettes: VisualGlossaryOption[];
+  atmosphere: VisualGlossaryOption[];
+};
+
 export type ImagePromptPayload = {
   vision_seed_text: string;
   model: "sdxl" | "flux" | "illustrious";
@@ -19,6 +36,7 @@ export type ImagePromptPayload = {
     colorPalettes: string[];
     atmosphere: string[];
   };
+  glossary: VisualOptionGlossary;
   mood_profile: string | null;
   constraints: string | null;
 };
@@ -30,6 +48,7 @@ export type VideoPlanPayload = {
   visual_style: "realistic" | "stylized" | "anime" | "mixed-media";
   aspect_ratio: "16:9" | "9:16";
   mood_profile: string | null;
+  planner_context?: string;
   cinematic_control_options?: {
     cameraAngles?: string[];
     shotSizes?: string[];
@@ -87,6 +106,7 @@ export type DirectorCoreSuccess =
       mode: "video_plan";
       provider: "gemini";
       storyboard?: unknown;
+      storyboardText?: string;
       metadata?: Record<string, unknown>;
       text?: string;
     }
@@ -94,9 +114,7 @@ export type DirectorCoreSuccess =
       success: true;
       mode: "loop_sequence";
       provider: "gemini";
-      loop?: LoopSequenceResult;
-      metadata?: Record<string, unknown>;
-      text?: string;
+      loop: LoopSequenceResult;
     };
 
 export type DirectorCoreError = {

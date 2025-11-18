@@ -8,6 +8,7 @@ import type {
   DirectorCoreSuccess,
   DirectorRequest,
   DirectorResponse,
+  ImagePromptPayload,
 } from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
@@ -45,7 +46,27 @@ function buildImagePayload() {
         colorPalettes: [],
         atmosphere: [],
       },
+      glossary: buildGlossary(),
     },
+  };
+}
+
+function buildGlossary(): ImagePromptPayload["glossary"] {
+  const emptyOption = {
+    id: "option",
+    label: "Option",
+    tooltip: "Tooltip",
+    promptSnippet: "Snippet",
+  };
+
+  return {
+    cameraAngles: [emptyOption],
+    shotSizes: [emptyOption],
+    composition: [emptyOption],
+    cameraMovement: [emptyOption],
+    lightingStyles: [emptyOption],
+    colorPalettes: [emptyOption],
+    atmosphere: [emptyOption],
   };
 }
 
@@ -167,14 +188,18 @@ test("video plans use server Gemini credentials when headers are missing", async
   setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
 
-  const storyboard = { thumbnailConcept: "Epic skyline", scenes: [] };
-
   const success: DirectorCoreSuccess = {
     success: true,
     mode: "video_plan",
     provider: "gemini",
-    storyboard,
-    text: JSON.stringify(storyboard),
+    storyboard: {
+      thumbnailConcept: "Epic skyline",
+      scenes: [],
+    },
+    storyboardText: JSON.stringify({
+      thumbnailConcept: "Epic skyline",
+      scenes: [],
+    }),
   };
 
   const callDirectorMock = t.mock.method(

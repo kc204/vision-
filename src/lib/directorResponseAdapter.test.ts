@@ -50,8 +50,7 @@ function createVideoSuccess(): DirectorCoreSuccess {
     mode: "video_plan",
     provider: "gemini",
     storyboard,
-    text: JSON.stringify(storyboard),
-    metadata: { rawText: JSON.stringify(storyboard) },
+    storyboardText: JSON.stringify(storyboard),
   };
 }
 
@@ -158,7 +157,7 @@ test("mapDirectorCoreSuccess returns plan-only video responses", () => {
     mode: "video_plan",
     provider: "gemini",
     storyboard,
-    text: JSON.stringify(storyboard),
+    storyboardText: JSON.stringify(storyboard),
   });
 
   assert.equal(response.success, true);

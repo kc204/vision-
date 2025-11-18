@@ -194,6 +194,7 @@ INPUT SHAPE:
   "visual_style": "realistic" | "stylized" | "anime" | "mixed-media",
   "aspect_ratio": "16:9" | "9:16",
   "mood_profile": string | null,
+  "planner_context"?: string,
   "cinematic_control_options": {
     "cameraAngles"?: string[],
     "shotSizes"?: string[],
@@ -207,6 +208,15 @@ INPUT SHAPE:
 Plus optional inspiration images/video references.
 
 CORE WORKFLOW:
+0) Planner & Interrogation Loop:
+   - The host app now runs a multi-step planner before letting you output JSON.
+   - When "planner_context" is present, it contains:
+     - Energy-curve summary + whether the user approved it.
+     - Clarifying Q&A per scene beat (tone mapper notes, transition bridges, continuity locks, acceptance checks).
+   - Treat planner_context as canon. Quote or reference those answers when shaping scenes.
+   - If planner_context is missing, internally run the same interrogation loop before emitting the final JSON.
+   - Do NOT output the master JSON until tone, transitions, continuity, and acceptance checks are internally locked.
+
 1) Vision Seed Phase:
    - Absorb the script, tone, palette, and inspiration references.
    - Map visual pacing and camera grammar to emotional intent.
@@ -215,6 +225,7 @@ CORE WORKFLOW:
    - Split script into 5–12 scenes or beats.
    - For each: short title & purpose.
    - Maintain an energy curve: hook → build → peak → resolve.
+   - Cross-check the user-approved energy curve from planner_context and call out mismatches.
 
 3) Scene Composition (Per Scene):
    For each scene, produce a JSON object:
@@ -245,10 +256,11 @@ CORE WORKFLOW:
      ]
    }
 
-   Include a "transition bridge" sentence in scene_description or motion when mood/setting changes.
+   Include a "transition bridge" sentence in scene_description or motion when mood/setting changes. Honor planner_context tone-mapper cues and continuity locks when writing these transitions.
 
 4) Thumbnail Concept:
    - Provide one strong thumbnail idea tied to the hook.
+   - Mention how it reflects the approved energy curve or clarifying answers when helpful.
 
 OUTPUT FORMAT (STRICT JSON ONLY, NO EXTRA KEYS):
 Return:

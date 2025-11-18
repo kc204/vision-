@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const providerKeys = extractProviderKeys(request, body, validation.value.mode);
+  const providerKeys = extractProviderKeys(request, body);
   const credentials: DirectorProviderCredentials = {};
 
   if (providerKeys.geminiApiKey) {
@@ -91,11 +91,7 @@ export async function POST(request: Request) {
   }
 }
 
-function extractProviderKeys(
-  request: Request,
-  body: unknown,
-  mode: DirectorRequest["mode"]
-): ProviderKeyBundle {
+function extractProviderKeys(request: Request, body: unknown): ProviderKeyBundle {
   const keys: ProviderKeyBundle = {};
 
   const geminiHeaderKey = normalizeApiKey(
@@ -109,7 +105,7 @@ function extractProviderKeys(
     getHeaderValue(request, ["x-provider-api-key"])
   );
   if (headerKey) {
-    assignKeyForMode(keys, mode, headerKey);
+    assignKey(keys, headerKey);
   }
 
   if (isRecord(body)) {
@@ -128,7 +124,7 @@ function extractProviderKeys(
     const generalBodyKey =
       normalizeApiKey(body.providerApiKey) ?? normalizeApiKey(body.apiKey);
     if (generalBodyKey) {
-      assignKeyForMode(keys, mode, generalBodyKey);
+      assignKey(keys, generalBodyKey);
     }
   }
 
@@ -154,11 +150,7 @@ function assignProviderKeysFromRecord(
   }
 }
 
-function assignKeyForMode(
-  target: ProviderKeyBundle,
-  mode: DirectorRequest["mode"],
-  value: string
-) {
+function assignKey(target: ProviderKeyBundle, value: string) {
   if (!target.geminiApiKey) {
     target.geminiApiKey = value;
   }
@@ -301,6 +293,7 @@ function parseImagePromptPayload(
     vision_seed_text,
     model,
     selectedOptions,
+    glossary,
     mood_profile = null,
     constraints = null,
   } = value as UnknownRecord;
@@ -318,10 +311,16 @@ function parseImagePromptPayload(
     return selections;
   }
 
+  const glossaryResult = parseGlossary(glossary);
+  if (!glossaryResult.ok) {
+    return glossaryResult;
+  }
+
   const payload: ImagePromptPayload = {
     vision_seed_text: vision_seed_text.trim(),
     model,
     selectedOptions: selections.value,
+    glossary: glossaryResult.value,
     mood_profile: parseNullableString(mood_profile),
     constraints: parseNullableString(constraints),
   };
@@ -529,6 +528,81 @@ function parseSelections(value: unknown):
   }
 
   return { ok: true, value: selections };
+}
+
+function parseGlossary(
+  value: unknown
+): ValidationResult<ImagePromptPayload["glossary"]> {
+  if (!isRecord(value)) {
+    return { ok: false, error: "glossary must be an object" };
+  }
+
+  const keys: Array<keyof ImagePromptPayload["glossary"]> = [
+    "cameraAngles",
+    "shotSizes",
+    "composition",
+    "cameraMovement",
+    "lightingStyles",
+    "colorPalettes",
+    "atmosphere",
+  ];
+
+  const glossary = {} as ImagePromptPayload["glossary"];
+
+  for (const key of keys) {
+    const list = value[key];
+    if (!Array.isArray(list)) {
+      return { ok: false, error: `glossary.${key} must be an array` };
+    }
+
+    const entries: ImagePromptPayload["glossary"][typeof key] = [];
+    for (const entry of list) {
+      const parsed = parseGlossaryOption(entry);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      entries.push(parsed.value);
+    }
+
+    glossary[key] = entries;
+  }
+
+  return { ok: true, value: glossary };
+}
+
+function parseGlossaryOption(
+  value: unknown
+): ValidationResult<ImagePromptPayload["glossary"][keyof ImagePromptPayload["glossary"]][number]> {
+  if (!isRecord(value)) {
+    return {
+      ok: false,
+      error: "glossary entries must be objects with id, label, tooltip, and promptSnippet",
+    };
+  }
+
+  const { id, label, tooltip, promptSnippet } = value as UnknownRecord;
+
+  if (
+    !isNonEmptyString(id) ||
+    !isNonEmptyString(label) ||
+    !isNonEmptyString(tooltip) ||
+    !isNonEmptyString(promptSnippet)
+  ) {
+    return {
+      ok: false,
+      error: "glossary entries must include id, label, tooltip, and promptSnippet",
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      id: id.trim(),
+      label: label.trim(),
+      tooltip: tooltip.trim(),
+      promptSnippet: promptSnippet.trim(),
+    },
+  };
 }
 
 function parseCinematicControlSelections(value: unknown):
