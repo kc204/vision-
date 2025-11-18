@@ -117,6 +117,36 @@ type SceneCardProps = {
   scene: VideoPlanResponse["scenes"][number];
 };
 
+type EnergyLevel = "grounded" | "rising" | "surge";
+
+type PlannerQuestion = {
+  id: string;
+  prompt: string;
+  answer: string;
+};
+
+type PlannerBeat = {
+  id: string;
+  order: number;
+  title: string;
+  excerpt: string;
+  energyLevel: EnergyLevel;
+  energyScore: number;
+  questions: PlannerQuestion[];
+};
+
+const ENERGY_LABELS: Record<EnergyLevel, string> = {
+  grounded: "Grounded",
+  rising: "Building",
+  surge: "Peak",
+};
+
+const ENERGY_BADGE_STYLES: Record<EnergyLevel, string> = {
+  grounded: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+  rising: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+  surge: "border-rose-500/40 bg-rose-500/10 text-rose-200",
+};
+
 export default function VideoBuilderPage() {
   const [visionSeedText, setVisionSeedText] = useState(
     INITIAL_FORM_STATE.vision_seed_text
@@ -162,6 +192,14 @@ export default function VideoBuilderPage() {
   const [storyboardMetadata, setStoryboardMetadata] = useState<string | null>(
     null
   );
+  const [plannerBeats, setPlannerBeats] = useState<PlannerBeat[]>([]);
+  const [energyCurveSummary, setEnergyCurveSummary] = useState<string | null>(
+    null
+  );
+  const [energyCurveApproved, setEnergyCurveApproved] = useState(false);
+  const [lastSegmentedScript, setLastSegmentedScript] = useState<string | null>(
+    null
+  );
   const [useSamplePlan, setUseSamplePlan] = useState(false);
   const [providerApiKey, setProviderApiKey] = useState("");
 
@@ -202,6 +240,10 @@ export default function VideoBuilderPage() {
     setRawPlanText(null);
     setStoryboardMetadata(null);
     setError(null);
+    setPlannerBeats([]);
+    setEnergyCurveSummary(null);
+    setEnergyCurveApproved(false);
+    setLastSegmentedScript(null);
   }, [useSamplePlan]);
 
   const cinematicControlGroups: Array<{
@@ -261,17 +303,150 @@ export default function VideoBuilderPage() {
     },
   ];
 
+  const trimmedVisionSeed = visionSeedText.trim();
+  const trimmedScript = scriptText.trim();
+
+  const scriptRequiresResegment =
+    !lastSegmentedScript || lastSegmentedScript !== trimmedScript;
+
+  const allQuestionsAnswered = useMemo(() => {
+    if (!plannerBeats.length) {
+      return false;
+    }
+
+    return plannerBeats.every((beat) =>
+      beat.questions.every((question) => question.answer.trim().length > 0)
+    );
+  }, [plannerBeats]);
+
+  const plannerReady =
+    plannerBeats.length > 0 &&
+    energyCurveApproved &&
+    allQuestionsAnswered &&
+    !scriptRequiresResegment;
+
   const canSubmit = useMemo(() => {
     return (
-      visionSeedText.trim().length > 0 &&
-      scriptText.trim().length > 0 &&
+      trimmedVisionSeed.length > 0 &&
+      trimmedScript.length > 0 &&
+      plannerReady &&
       !isSubmitting
     );
-  }, [isSubmitting, scriptText, visionSeedText]);
+  }, [trimmedVisionSeed.length, trimmedScript.length, plannerReady, isSubmitting]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const pendingQuestionCount = useMemo(() => {
+    if (!plannerBeats.length) {
+      return 0;
+    }
+
+    return plannerBeats.reduce((count, beat) => {
+      return (
+        count +
+        beat.questions.filter((question) => !question.answer.trim().length)
+          .length
+      );
+    }, 0);
+  }, [plannerBeats]);
+
+  const questionContextMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    const answeredTrail: string[] = [];
+
+    plannerBeats.forEach((beat) => {
+      map[beat.id] = [...answeredTrail];
+
+      beat.questions.forEach((question) => {
+        if (question.answer.trim().length) {
+          answeredTrail.push(
+            `Scene ${beat.order}: ${question.answer.trim().slice(0, 220)}`
+          );
+        }
+      });
+    });
+
+    return map;
+  }, [plannerBeats]);
+
+  const canKickoffPlanner =
+    trimmedVisionSeed.length > 0 && trimmedScript.length > 0 && !isSubmitting;
+
+  const plannerBlockingMessage = useMemo(() => {
+    if (!plannerBeats.length) {
+      return "Segment the script to unlock the clarifying loop.";
+    }
+
+    if (scriptRequiresResegment) {
+      return "Re-run segmentation because the script changed.";
+    }
+
+    if (!energyCurveApproved) {
+      return "Approve the energy-curve summary to continue.";
+    }
+
+    if (!allQuestionsAnswered) {
+      return `Answer the remaining ${pendingQuestionCount} clarifying question(s).`;
+    }
+
+    return null;
+  }, [
+    plannerBeats.length,
+    scriptRequiresResegment,
+    energyCurveApproved,
+    allQuestionsAnswered,
+    pendingQuestionCount,
+  ]);
+
+  function handlePlannerKickoff() {
+    if (!canKickoffPlanner) {
+      setError("Add a Vision Seed and script before segmenting into beats.");
+      return;
+    }
+
+    const beats = segmentScriptIntoBeats(trimmedScript);
+
+    if (!beats.length) {
+      setError("Unable to segment the script. Add more narrative detail.");
+      return;
+    }
+
+    setPlannerBeats(beats);
+    setEnergyCurveSummary(generateEnergyCurveSummary(beats, tone));
+    setEnergyCurveApproved(false);
+    setLastSegmentedScript(trimmedScript);
+    setResult(null);
+    setMediaAssets([]);
+    setRawPlanText(null);
+    setStoryboardMetadata(null);
+    setError(null);
+  }
+
+  function handleQuestionAnswer(
+    beatId: string,
+    questionId: string,
+    answer: string
+  ) {
+    setPlannerBeats((previous) =>
+      previous.map((beat) =>
+        beat.id === beatId
+          ? {
+              ...beat,
+              questions: beat.questions.map((question) =>
+                question.id === questionId ? { ...question, answer } : question
+              ),
+            }
+          : beat
+      )
+    );
+  }
+
+  async function handleGeneratePlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
+
+    if (!plannerReady) {
+      setError("Complete the clarifying loop before requesting the plan.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -317,13 +492,20 @@ export default function VideoBuilderPage() {
       const hasCinematicControls =
         Object.keys(cinematicControlOptions).length > 0;
 
+      const plannerContext = buildPlannerContextSummary(
+        plannerBeats,
+        energyCurveSummary,
+        energyCurveApproved
+      );
+
       const payload: VideoPlanPayload = {
-        vision_seed_text: visionSeedText.trim(),
-        script_text: scriptText.trim(),
+        vision_seed_text: trimmedVisionSeed,
+        script_text: trimmedScript,
         tone,
         visual_style: visualStyle,
         aspect_ratio: aspectRatio,
         mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
+        planner_context: plannerContext,
         cinematic_control_options: hasCinematicControls
           ? cinematicControlOptions
           : undefined,
@@ -423,7 +605,7 @@ export default function VideoBuilderPage() {
   return (
     <section className="grid gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
       <form
-        onSubmit={handleSubmit}
+        onSubmit={handleGeneratePlan}
         className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
       >
         <header className="flex flex-wrap items-start justify-between gap-4">
@@ -449,6 +631,15 @@ export default function VideoBuilderPage() {
           </label>
         </header>
 
+        <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-200">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-canvas-accent">
+            Step 1 · Vision Seed handshake
+          </p>
+          <p className="mt-2 text-slate-300">
+            Greet the Director Core with your Vision Seed, tone, and cinematic controls. This anchors the tone mapper before we auto-plan beats and clarifying questions.
+          </p>
+        </div>
+
         <label className="block space-y-2">
           <span className="text-sm font-semibold text-slate-200">Vision Seed</span>
           <textarea
@@ -470,6 +661,41 @@ export default function VideoBuilderPage() {
             className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
           />
         </label>
+
+        <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-canvas-accent">
+                Step 2 · Auto-segment planner
+              </p>
+              <p className="text-sm text-slate-300">
+                We'll slice the script into beats, surface energy, and draft clarifying questions per scene.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handlePlannerKickoff}
+              disabled={!canKickoffPlanner}
+              className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:border-white/20 disabled:text-slate-400"
+            >
+              {plannerBeats.length ? "Re-run segmentation" : "Segment script"}
+            </button>
+          </div>
+          {plannerBeats.length ? (
+            <div className="mt-3 text-sm text-slate-300">
+              {plannerBeats.length} beat(s) detected · {pendingQuestionCount} clarifying question(s) open
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-400">
+              Provide a Vision Seed + script, then segment to unlock the planner.
+            </p>
+          )}
+          {scriptRequiresResegment && plannerBeats.length ? (
+            <p className="mt-2 text-xs text-amber-200">
+              Script changed since the last segmentation. Re-run to refresh the beats and questions.
+            </p>
+          ) : null}
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectorGroup
@@ -521,6 +747,59 @@ export default function VideoBuilderPage() {
           ))}
         </div>
 
+        {plannerBeats.length ? (
+          <section className="space-y-4 rounded-3xl border border-white/10 bg-slate-950/50 p-5">
+            <header className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-canvas-accent">
+                Step 3 · Clarifying loop
+              </p>
+              <p className="text-sm text-slate-300">
+                Answer 1-2 questions per beat so the tone mapper can lock transitions, continuity, and acceptance checks.
+              </p>
+            </header>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Energy curve summary</p>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {energyCurveSummary ?? "Energy curve pending"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEnergyCurveApproved((previous) => !previous)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                    energyCurveApproved
+                      ? "bg-emerald-500/20 text-emerald-200"
+                      : "bg-white/5 text-white hover:bg-white/10"
+                  }`}
+                >
+                  {energyCurveApproved ? "Energy curve approved" : "Approve energy curve"}
+                </button>
+              </div>
+              {!energyCurveApproved ? (
+                <p className="mt-2 text-xs text-amber-200">
+                  Approval required before the master JSON can be requested.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-4">
+              {plannerBeats.map((beat) => (
+                <BeatPlannerCard
+                  key={beat.id}
+                  beat={beat}
+                  contextTrail={questionContextMap[beat.id] ?? []}
+                  onAnswerChange={(questionId, answer) =>
+                    handleQuestionAnswer(beat.id, questionId, answer)
+                  }
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <ImageDropzone
           files={files}
           onFilesChange={setFiles}
@@ -559,8 +838,15 @@ export default function VideoBuilderPage() {
           disabled={!canSubmit}
           className="w-full rounded-xl bg-canvas-accent px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition disabled:cursor-not-allowed disabled:bg-slate-600"
         >
-          {isSubmitting ? "Generating…" : "Generate video plan"}
+          {isSubmitting
+            ? "Generating…"
+            : plannerReady
+            ? "Request Veo-ready JSON"
+            : "Complete planner to enable JSON"}
         </button>
+        {!plannerReady && !isSubmitting && plannerBlockingMessage ? (
+          <p className="text-xs text-amber-200">{plannerBlockingMessage}</p>
+        ) : null}
         {error ? (
           <p className="text-sm text-rose-400" role="alert">
             {error}
@@ -719,6 +1005,75 @@ function VideoOptionMultiSelect({
         })}
       </div>
     </div>
+  );
+}
+
+function BeatPlannerCard({
+  beat,
+  contextTrail,
+  onAnswerChange,
+}: {
+  beat: PlannerBeat;
+  contextTrail: string[];
+  onAnswerChange: (questionId: string, answer: string) => void;
+}) {
+  const recentContext = contextTrail.slice(-3);
+
+  return (
+    <article className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/50 p-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+            Scene {beat.order}
+          </p>
+          <h3 className="text-lg font-semibold text-white">{beat.title}</h3>
+        </div>
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+            ENERGY_BADGE_STYLES[beat.energyLevel]
+          }`}
+        >
+          {ENERGY_LABELS[beat.energyLevel]} energy
+        </span>
+      </header>
+
+      <p className="text-sm text-slate-300">{beat.excerpt}</p>
+
+      {recentContext.length ? (
+        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+            Context from prior answers
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-100">
+            {recentContext.map((answer, index) => (
+              <li
+                key={`${beat.id}-context-${index}`}
+                className="rounded-md bg-slate-950/40 px-2 py-1"
+              >
+                {answer}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="space-y-4">
+        {beat.questions.map((question) => (
+          <label key={question.id} className="block space-y-2">
+            <span className="text-sm font-semibold text-slate-200">
+              {question.prompt}
+            </span>
+            <textarea
+              value={question.answer}
+              onChange={(event) => onAnswerChange(question.id, event.target.value)}
+              rows={3}
+              placeholder="Answer with tone, continuity, or transition notes"
+              className="w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+            />
+          </label>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -930,4 +1285,167 @@ function parseVideoPlanCandidate(candidate: unknown): VideoPlanResponse | null {
     scenes: scenesCandidate as VideoPlanResponse["scenes"],
     thumbnailConcept: thumbnailConcept ?? "Thumbnail concept pending",
   };
+}
+
+function segmentScriptIntoBeats(script: string): PlannerBeat[] {
+  const normalized = script.replace(/\r\n?/g, "\n").trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  let segments = normalized
+    .split(/\n{2,}/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length < 4) {
+    const sentences = normalized
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    const target = Math.min(8, Math.max(4, sentences.length || 1));
+    const groupSize = Math.max(1, Math.ceil(sentences.length / target));
+    const grouped: string[] = [];
+    for (let index = 0; index < sentences.length; index += groupSize) {
+      grouped.push(sentences.slice(index, index + groupSize).join(" "));
+    }
+    segments = grouped.filter(Boolean);
+  }
+
+  while (segments.length > 10) {
+    let mergeIndex = 0;
+    let shortest = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < segments.length - 1; index++) {
+      const combinedLength = segments[index].length + segments[index + 1].length;
+      if (combinedLength < shortest) {
+        shortest = combinedLength;
+        mergeIndex = index;
+      }
+    }
+
+    const merged = `${segments[mergeIndex]} ${segments[mergeIndex + 1]}`.trim();
+    segments.splice(mergeIndex, 2, merged);
+  }
+
+  const averageWords =
+    segments.reduce((sum, segment) => sum + wordCount(segment), 0) /
+      segments.length || 1;
+
+  return segments.map((segment, index) => {
+    const energyScore = computeEnergyScore(segment, averageWords);
+    return {
+      id: `beat-${index}-${Math.random().toString(36).slice(2, 9)}`,
+      order: index + 1,
+      title: deriveBeatTitle(segment, index),
+      excerpt: segment.length > 280 ? `${segment.slice(0, 277)}…` : segment,
+      energyLevel: classifyEnergyLevel(energyScore),
+      energyScore,
+      questions: generateClarifyingQuestionsForBeat(segment, index, segments.length),
+    };
+  });
+}
+
+function generateEnergyCurveSummary(
+  beats: PlannerBeat[],
+  tone: VideoPlanPayload["tone"]
+): string {
+  if (!beats.length) {
+    return "Energy curve pending user approval.";
+  }
+
+  const energyPath = beats
+    .map(
+      (beat) =>
+        `${beat.order}. ${beat.title} (${ENERGY_LABELS[beat.energyLevel].toLowerCase()})`
+    )
+    .join(" → ");
+
+  return `Energy arc (${tone} tone): ${energyPath}. Hold the ${ENERGY_LABELS[beats[0].energyLevel].toLowerCase()} entry, build through the middle beats, and land with the ${ENERGY_LABELS[beats[beats.length - 1].energyLevel].toLowerCase()} resolution.`;
+}
+
+function buildPlannerContextSummary(
+  beats: PlannerBeat[],
+  energySummary: string | null,
+  approved: boolean
+): string {
+  const header = `Energy curve (${approved ? "approved" : "pending"}): ${
+    energySummary ?? "Not provided"
+  }`;
+
+  const clarifications = beats
+    .map((beat) => {
+      const answers = beat.questions
+        .filter((question) => question.answer.trim().length)
+        .map(
+          (question) => `Q: ${question.prompt}\nA: ${question.answer.trim()}`
+        );
+      return `Scene ${beat.order} - ${beat.title}\n${
+        answers.length ? answers.join("\n") : "No clarifications provided"
+      }`;
+    })
+    .join("\n\n");
+
+  return `${header}\n\nClarifications\n${clarifications}`;
+}
+
+function computeEnergyScore(segment: string, averageWords: number): number {
+  const words = wordCount(segment);
+  const normalized = averageWords ? words / averageWords : 1;
+  const exclamationBoost = (segment.match(/[!?]/g)?.length ?? 0) * 0.1;
+  const momentumBoost = /(surge|rush|race|storm|climax|urgent|crescendo|drop)/i.test(
+    segment
+  )
+    ? 0.2
+    : 0;
+  return normalized + exclamationBoost + momentumBoost;
+}
+
+function classifyEnergyLevel(score: number): EnergyLevel {
+  if (score < 0.9) {
+    return "grounded";
+  }
+  if (score > 1.3) {
+    return "surge";
+  }
+  return "rising";
+}
+
+function deriveBeatTitle(segment: string, index: number): string {
+  const firstSentence = segment.split(/(?<=[.!?])\s+/)[0] ?? "";
+  const trimmed = firstSentence || segment.split(" ").slice(0, 8).join(" ");
+  const title = trimmed.trim().length ? trimmed.trim() : `Beat ${index + 1}`;
+  return title.length > 64 ? `${title.slice(0, 61)}…` : title;
+}
+
+function generateClarifyingQuestionsForBeat(
+  segment: string,
+  index: number,
+  total: number
+): PlannerQuestion[] {
+  const sceneLabel = `Scene ${index + 1}`;
+  const summary = segment.split(/(?<=[.!?])\s+/)[0] ?? "this beat";
+  const questions: PlannerQuestion[] = [
+    {
+      id: `${sceneLabel}-q1-${Math.random().toString(36).slice(2, 8)}`,
+      prompt: `What visual motif or palette should anchor ${sceneLabel} ("${summary}")?`,
+      answer: "",
+    },
+  ];
+
+  if (total > 1) {
+    const nextLabel = index + 1 < total ? `Scene ${index + 2}` : "the resolution";
+    questions.push({
+      id: `${sceneLabel}-q2-${Math.random().toString(36).slice(2, 8)}`,
+      prompt: `How should the transition into ${nextLabel} feel, and what continuity lock must we carry over?`,
+      answer: "",
+    });
+  }
+
+  return questions;
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
 }

@@ -30,6 +30,7 @@ export type VideoPlanPayload = {
   visual_style: "realistic" | "stylized" | "anime" | "mixed-media";
   aspect_ratio: "16:9" | "9:16";
   mood_profile: string | null;
+  planner_context?: string;
   cinematic_control_options?: {
     cameraAngles?: string[];
     shotSizes?: string[];
