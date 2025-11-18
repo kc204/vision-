@@ -44,6 +44,7 @@ type VeoPromptPayload = {
   tone?: string;
   visual_style?: string;
   mood_profile?: string | null;
+  planner_context?: string;
   cinematic_control_options?: Record<string, unknown>;
   media?: VeoMediaAttachment[];
   system_prompt?: string;
@@ -491,6 +492,7 @@ function buildVeoVideoRequestPayload(
     visual_style,
     aspect_ratio,
     mood_profile,
+    planner_context,
     cinematic_control_options,
   } = payload as Record<string, unknown>;
 
@@ -523,6 +525,10 @@ function buildVeoVideoRequestPayload(
 
   if (typeof mood_profile === "string") {
     veoPrompt.mood_profile = mood_profile.trim().length ? mood_profile.trim() : null;
+  }
+
+  if (typeof planner_context === "string" && planner_context.trim().length) {
+    veoPrompt.planner_context = planner_context.trim();
   }
 
   if (isRecord(cinematic_control_options)) {
