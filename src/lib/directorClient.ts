@@ -1,6 +1,8 @@
 import {
   assertNoLatestAliases,
   enforceAllowedGeminiModels,
+  ensureImageCapableGeminiModels,
+  isImageCapableGeminiModel,
   parseModelList,
 } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
@@ -22,7 +24,10 @@ const VEO_API_URL = resolveGeminiApiBaseUrl(process.env.VEO_API_URL ?? GEMINI_AP
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
-const DEFAULT_GEMINI_IMAGE_MODELS = ["gemini-2.5-flash"] as const;
+const DEFAULT_GEMINI_IMAGE_MODELS = [
+  "imagen-3.0-generate-001",
+  "gemini-2.5-flash",
+] as const;
 const RAW_GEMINI_IMAGE_MODELS = parseModelList(
   process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
   [...DEFAULT_GEMINI_IMAGE_MODELS]
@@ -56,13 +61,13 @@ assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
   envVar: "GEMINI_IMAGE_MODELS",
 });
 
-const GEMINI_IMAGE_MODELS = enforceAllowedGeminiModels(
-  RAW_GEMINI_IMAGE_MODELS,
-  {
+const GEMINI_IMAGE_MODELS = ensureImageCapableGeminiModels(
+  enforceAllowedGeminiModels(RAW_GEMINI_IMAGE_MODELS, {
     fallback: DEFAULT_GEMINI_IMAGE_MODELS,
     context: "image",
     envVar: "GEMINI_IMAGE_MODELS",
-  }
+  }),
+  DEFAULT_GEMINI_IMAGE_MODELS
 );
 const VEO_VIDEO_MODELS = parseModelList(
   process.env.VEO_VIDEO_MODELS ?? process.env.VEO_VIDEO_MODEL,
@@ -125,7 +130,7 @@ async function callGeminiImageProvider(
     };
   }
 
-  const model = GEMINI_IMAGE_MODELS[0];
+  const model = GEMINI_IMAGE_MODELS.find(isImageCapableGeminiModel) ?? GEMINI_IMAGE_MODELS[0];
   if (!model) {
     return {
       success: false,
