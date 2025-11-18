@@ -27,6 +27,19 @@ import {
   type VisualOption,
 } from "@/lib/visualOptions";
 
+type SeedResponses = {
+  subjectFocus: string;
+  environment: string;
+  compositionNotes: string;
+  lightingNotes: string;
+  styleNotes: string;
+  symbolismNotes: string;
+  atmosphereNotes: string;
+  outputIntent: string;
+  constraints: string;
+  moodProfile: string;
+};
+
 const SAMPLE_IMAGE_SELECTIONS: Readonly<ImagePromptPayload["selectedOptions"]> = {
   cameraAngles: ["low_angle"],
   shotSizes: ["medium"],
@@ -144,6 +157,21 @@ const visualGlossary = (Object.keys(visualOptionLists) as Array<
   acc[key] = toGlossaryEntries(visualOptionLists[key]);
   return acc;
 }, {} as ImagePromptPayload["glossary"]);
+
+function createSeedResponses(initialSubject: string): SeedResponses {
+  return {
+    subjectFocus: initialSubject,
+    environment: "",
+    compositionNotes: "",
+    lightingNotes: "",
+    styleNotes: "",
+    symbolismNotes: "",
+    atmosphereNotes: "",
+    outputIntent: "",
+    constraints: "",
+    moodProfile: "",
+  };
+}
 
 export default function ImageBuilderPage() {
   const [seedResponses, setSeedResponses] = useState<SeedResponses>(() =>
