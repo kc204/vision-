@@ -23,15 +23,11 @@ export const GEMINI_ALLOWED_MODELS = [
   "gemini-1.5-pro",
   "gemini-1.5-flash",
   "gemini-1.5-flash-8b",
-  "gemini-1.0-pro-vision",
   "imagen-3.0-generate-001",
   "imagen-3.0-fast-generate-001",
 ] as const;
 
 export const IMAGE_CAPABLE_GEMINI_MODELS = [
-  "gemini-1.5-pro",
-  "gemini-1.5-flash",
-  "gemini-1.0-pro-vision",
   "imagen-3.0-generate-001",
   "imagen-3.0-fast-generate-001",
 ] as const satisfies readonly GeminiAllowedModel[];
@@ -122,7 +118,7 @@ export function ensureImageCapableGeminiModels(
 }
 
 export async function resolveGoogleModel(
-  auth: { accessToken?: string; apiKey?: string },
+  accessToken: string,
   candidates: string[],
   apiUrl: string = DEFAULT_GOOGLE_API_URL
 ): Promise<string | null> {
@@ -130,7 +126,7 @@ export async function resolveGoogleModel(
     return null;
   }
 
-  const available = await listGoogleModels(auth, apiUrl);
+  const available = await listGoogleModels(accessToken, apiUrl);
   for (const candidate of candidates) {
     if (available.has(candidate)) {
       return candidate;
@@ -140,29 +136,21 @@ export async function resolveGoogleModel(
 }
 
 async function listGoogleModels(
-  auth: { accessToken?: string; apiKey?: string },
+  accessToken: string,
   apiUrl: string
 ): Promise<Set<string>> {
-  const cacheKey = `${apiUrl}|${auth.accessToken ?? ""}|${auth.apiKey ?? ""}`;
+  const cacheKey = `${apiUrl}|${accessToken}`;
   const cached = entitlementCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const loader = (async () => {
-    const url = new URL(`${apiUrl}/models`);
-    if (auth.apiKey) {
-      url.searchParams.set("key", auth.apiKey);
-    }
-
-    const headers: Record<string, string> = {};
-    if (auth.accessToken) {
-      headers.Authorization = `Bearer ${auth.accessToken}`;
-    }
-
-    const response = await fetch(url, {
+    const response = await fetch(`${apiUrl}/models`, {
       method: "GET",
-      headers,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     });
 
     if (!response.ok) {
