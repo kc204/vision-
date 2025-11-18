@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { POST } from "@/app/api/director/route";
 import * as directorClient from "@/lib/directorClient";
-import type { DirectorCoreSuccess } from "@/lib/directorTypes";
+import type { DirectorCoreError, DirectorCoreSuccess } from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
   DIRECTOR_CORE_REQUIRE_API_KEY: process.env.DIRECTOR_CORE_REQUIRE_API_KEY,
@@ -143,5 +143,36 @@ test("video plans use server Veo credentials when headers are missing", async (t
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.success, true);
+  assert.equal(callDirectorMock.mock.calls.length, 1);
+});
+
+test("provider failures return a structured error response", async (t) => {
+  setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
+  setEnv("GEMINI_API_KEY", "server-gemini-key");
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("VEO_API_KEY", undefined);
+
+  const directorError: DirectorCoreError = {
+    success: false,
+    provider: "gemini",
+    error: "Gemini request failed",
+    status: 429,
+    details: { reason: "quota" },
+  };
+
+  const callDirectorMock = t.mock.method(
+    directorClient,
+    "callDirectorCore",
+    async () => directorError
+  );
+
+  const response = await POST(createRequest(buildImagePayload()));
+
+  assert.equal(response.status, directorError.status);
+  const payload = await response.json();
+  assert.equal(payload.success, false);
+  assert.equal(payload.mode, "image_prompt");
+  assert.equal(payload.error, directorError.error);
+  assert.equal(payload.status, directorError.status);
   assert.equal(callDirectorMock.mock.calls.length, 1);
 });
