@@ -7,11 +7,7 @@ import {
   resolveGoogleModel,
 } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
-import {
-  logGenerativeClientTarget,
-  resolveGeminiApiBaseUrl,
-  resolveVeoApiBaseUrl,
-} from "./geminiApiUrl";
+import { logGenerativeClientTarget, resolveGeminiApiBaseUrl } from "./geminiApiUrl";
 import type {
   DirectorCoreResult,
   DirectorCoreSuccess,
@@ -25,6 +21,7 @@ import type {
 } from "./directorTypes";
 
 const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
+const VEO_API_URL = resolveGeminiApiBaseUrl(process.env.VEO_API_URL ?? GEMINI_API_URL);
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
@@ -245,28 +242,13 @@ async function callVeoVideoProvider(
   credentials?: DirectorProviderCredentials
 ): Promise<DirectorCoreResult> {
   const apiKey = credentials?.veo?.apiKey ?? getServerVeoApiKey();
-  const geminiApiKey = credentials?.gemini?.apiKey ?? getServerGeminiApiKey();
-  const veoApiUrl = getVeoApiBaseUrl();
 
-  if (!veoApiUrl) {
+  if (!apiKey) {
     return {
       success: false,
       provider: "veo",
       error:
-        "Missing a Veo video endpoint. Configure VERTEX_VEO_API_URL or VEO_API_URL for video generation.",
-      status: 500,
-    };
-  }
-
-  if (!apiKey) {
-    const message = geminiApiKey
-      ? "Veo requires a dedicated API key. Provide veo credentials or set VERTEX_VEO_API_KEY or VEO_API_KEY instead of GEMINI_API_KEY/GOOGLE_API_KEY."
-      : "Missing credentials for Veo video planning. Provide a veo API key or configure VERTEX_VEO_API_KEY or VEO_API_KEY.";
-
-    return {
-      success: false,
-      provider: "veo",
-      error: message,
+        "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
       status: 401,
     };
   }
@@ -282,9 +264,9 @@ async function callVeoVideoProvider(
     };
   }
 
-  const endpoint = buildVeoVideoEndpoint(veoApiUrl, model);
-  logVeoClientConfiguration({ model, baseUrl: veoApiUrl, videoEndpoint: endpoint });
+  logVeoClientConfiguration({ model, baseUrl: VEO_API_URL });
 
+  const endpoint = `${VEO_API_URL}/models/${encodeURIComponent(model)}:predictLongRunning`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -353,12 +335,7 @@ async function callVeoVideoProvider(
     };
   }
 
-  const operationResult = await pollVeoVideoOperation(
-    operationName,
-    apiKey,
-    model,
-    veoApiUrl
-  );
+  const operationResult = await pollVeoVideoOperation(operationName, apiKey, model);
   if (!operationResult.success) {
     return operationResult.result;
   }
@@ -971,15 +948,7 @@ function getServerGeminiApiKey(): string | undefined {
 
 function getServerVeoApiKey(): string | undefined {
   return (
-    getNonEmptyString(process.env.VERTEX_VEO_API_KEY) ??
-    getNonEmptyString(process.env.VEO_API_KEY)
-  );
-}
-
-function getVeoApiBaseUrl(): string | undefined {
-  return resolveVeoApiBaseUrl(
-    getNonEmptyString(process.env.VERTEX_VEO_API_URL) ??
-      getNonEmptyString(process.env.VEO_API_URL)
+    getNonEmptyString(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
   );
 }
 
@@ -1013,11 +982,9 @@ function logGeminiImageClientConfiguration(model: string) {
 function logVeoClientConfiguration({
   model,
   baseUrl,
-  videoEndpoint,
 }: {
   model: string;
   baseUrl: string;
-  videoEndpoint: string;
 }) {
   if (veoClientLogged) {
     return;
@@ -1029,12 +996,7 @@ function logVeoClientConfiguration({
     context: "director video",
     baseUrl,
     model,
-    requireBeta: false,
   });
-
-  console.info(
-    `[Veo] director video endpoint ${normalizeBaseUrl(videoEndpoint)} for model ${model}.`
-  );
 }
 
 function validateVeoModel(model: string | undefined): string | null {
@@ -1047,18 +1009,6 @@ function validateVeoModel(model: string | undefined): string | null {
   }
 
   return null;
-}
-
-function buildVeoVideoEndpoint(baseUrl: string, model: string): string {
-  const normalizedBase = normalizeBaseUrl(baseUrl);
-  const modelsBase = normalizedBase.endsWith("/models")
-    ? normalizedBase
-    : `${normalizedBase}/models`;
-  return `${modelsBase}/${encodeURIComponent(model)}:predictLongRunning`;
-}
-
-function normalizeBaseUrl(value: string): string {
-  return value.replace(/\/+$/, "");
 }
 
 function extractOperationName(payload: unknown): string | null {
@@ -1080,13 +1030,12 @@ function extractOperationName(payload: unknown): string | null {
 async function pollVeoVideoOperation(
   operationName: string,
   apiKey: string,
-  provider: string,
-  baseUrl: string
+  provider: string
 ): Promise<
   | { success: true; payload: unknown; status?: number }
   | { success: false; result: DirectorCoreResult }
 > {
-  const operationUrl = buildVeoOperationUrl(operationName, apiKey, baseUrl);
+  const operationUrl = buildVeoOperationUrl(operationName, apiKey);
   const maxAttempts = 30;
   const pollIntervalMs = 1000;
 
@@ -1166,12 +1115,8 @@ async function pollVeoVideoOperation(
   };
 }
 
-function buildVeoOperationUrl(
-  operationName: string,
-  apiKey: string,
-  baseUrl: string
-): string {
-  const normalizedBase = normalizeBaseUrl(baseUrl);
+function buildVeoOperationUrl(operationName: string, apiKey: string): string {
+  const normalizedBase = VEO_API_URL.replace(/\/+$/, "");
   const normalizedName = operationName.replace(/^\/+/, "");
   const baseUrl = operationName.startsWith("http")
     ? operationName.replace(/\/+$/, "")

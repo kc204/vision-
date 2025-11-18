@@ -7,16 +7,6 @@ export function resolveGeminiApiBaseUrl(value?: string): string {
   return base.replace(/\/+$/, "");
 }
 
-export function resolveVeoApiBaseUrl(value?: string): string | undefined {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const normalized = trimmed.replace(/\/+$/, "");
-  return normalized.endsWith("/video") ? normalized : `${normalized}/video`;
-}
-
 export function logGenerativeClientTarget({
   provider,
   context,
