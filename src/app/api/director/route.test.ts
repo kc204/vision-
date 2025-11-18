@@ -3,7 +3,12 @@ import test from "node:test";
 
 import { POST } from "@/app/api/director/route";
 import * as directorClient from "@/lib/directorClient";
-import type { DirectorCoreSuccess } from "@/lib/directorTypes";
+import type {
+  DirectorCoreError,
+  DirectorCoreSuccess,
+  DirectorRequest,
+  DirectorResponse,
+} from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
   DIRECTOR_CORE_REQUIRE_API_KEY: process.env.DIRECTOR_CORE_REQUIRE_API_KEY,
@@ -75,6 +80,59 @@ function createRequest(body: unknown) {
   });
 }
 
+async function exerciseBuilderSubmissionFlow(
+  response: Response,
+  expectedMode: DirectorRequest["mode"]
+): Promise<DirectorResponse> {
+  const responseClone = response.clone();
+  let rawBodyText: string | null = null;
+  const rawResponseJson = (await response
+    .json()
+    .catch(async () => {
+      rawBodyText = await responseClone.text().catch(() => null);
+      return null;
+    })) as DirectorResponse | { error?: string } | null;
+
+  if (!response.ok) {
+    rawBodyText ??= await responseClone.text().catch(() => null);
+    const message =
+      (rawResponseJson as { error?: string } | null)?.error ??
+      (rawBodyText
+        ? `HTTP ${response.status}: ${rawBodyText}`
+        : `HTTP ${response.status} error`);
+    throw new Error(message);
+  }
+
+  if (
+    !rawResponseJson ||
+    typeof rawResponseJson !== "object" ||
+    !("success" in rawResponseJson)
+  ) {
+    const bodySummary =
+      rawBodyText ??
+      (rawResponseJson ? JSON.stringify(rawResponseJson) : null) ??
+      "No response body returned";
+    throw new Error(
+      `Invalid response format (HTTP ${response.status}). Raw response: ${bodySummary}`
+    );
+  }
+
+  const responseJson: DirectorResponse = rawResponseJson;
+
+  if (responseJson.success !== true) {
+    throw new Error(
+      (responseJson as { error?: string }).error ??
+        "Director Core returned an unexpected payload"
+    );
+  }
+
+  if (responseJson.mode !== expectedMode) {
+    throw new Error("Director Core returned a response for a different mode");
+  }
+
+  return responseJson;
+}
+
 test("image prompts proceed when server Gemini key exists", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
   setEnv("GEMINI_API_KEY", "server-gemini-key");
@@ -144,4 +202,97 @@ test("video plans use server Veo credentials when headers are missing", async (t
   const payload = await response.json();
   assert.equal(payload.success, true);
   assert.equal(callDirectorMock.mock.calls.length, 1);
+});
+
+test("provider failures propagate as DirectorErrorResponse objects to image builders", async (t) => {
+  setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
+  setEnv("GEMINI_API_KEY", "server-gemini-key");
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("VEO_API_KEY", undefined);
+
+  const failure: DirectorCoreError = {
+    success: false,
+    error: "Gemini is overloaded",
+    provider: "gemini",
+    status: 503,
+    details: { reason: "rate_limit" },
+  };
+
+  const callDirectorMock = t.mock.method(
+    directorClient,
+    "callDirectorCore",
+    async () => failure
+  );
+
+  const response = await POST(createRequest(buildImagePayload()));
+
+  assert.equal(response.status, 503);
+  const payload = await response.clone().json();
+  assert.equal(payload.success, false);
+  assert.equal(payload.error, failure.error);
+  assert.equal(payload.provider, failure.provider);
+  assert.equal(payload.status, failure.status);
+  assert.deepEqual(payload.details, failure.details);
+  assert.equal(callDirectorMock.mock.calls.length, 1);
+
+  await assert.rejects(
+    () => exerciseBuilderSubmissionFlow(response, "image_prompt"),
+    (submissionError: unknown) => {
+      assert.equal(submissionError instanceof Error, true);
+      if (submissionError instanceof Error) {
+        assert.equal(submissionError.message, failure.error);
+        assert.equal(
+          submissionError.message.includes("Invalid response format"),
+          false
+        );
+      }
+      return true;
+    }
+  );
+});
+
+test("video builders receive a valid error payload even when provider status is missing", async (t) => {
+  setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
+  setEnv("GEMINI_API_KEY", undefined);
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("VEO_API_KEY", "server-veo-key");
+
+  const failure: DirectorCoreError = {
+    success: false,
+    error: "Veo is under maintenance",
+    provider: "veo",
+    details: { retryAfter: 120 },
+  };
+
+  const callDirectorMock = t.mock.method(
+    directorClient,
+    "callDirectorCore",
+    async () => failure
+  );
+
+  const response = await POST(createRequest(buildVideoPlanPayload()));
+
+  assert.equal(response.status, 502);
+  const payload = await response.clone().json();
+  assert.equal(payload.success, false);
+  assert.equal(payload.error, failure.error);
+  assert.equal(payload.provider, failure.provider);
+  assert.equal(payload.status, undefined);
+  assert.deepEqual(payload.details, failure.details);
+  assert.equal(callDirectorMock.mock.calls.length, 1);
+
+  await assert.rejects(
+    () => exerciseBuilderSubmissionFlow(response, "video_plan"),
+    (submissionError: unknown) => {
+      assert.equal(submissionError instanceof Error, true);
+      if (submissionError instanceof Error) {
+        assert.equal(submissionError.message, failure.error);
+        assert.equal(
+          submissionError.message.includes("Invalid response format"),
+          false
+        );
+      }
+      return true;
+    }
+  );
 });
