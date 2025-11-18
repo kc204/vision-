@@ -7,6 +7,12 @@ export type DirectorMode =
   | VideoPlanMode
   | LoopSequenceMode;
 
+export type ConversationTurn = {
+  role: "assistant" | "user";
+  content: string;
+  mood?: string | null;
+};
+
 export type ImagePromptPayload = {
   vision_seed_text: string;
   model: "sdxl" | "flux" | "illustrious";
@@ -21,6 +27,7 @@ export type ImagePromptPayload = {
   };
   mood_profile: string | null;
   constraints: string | null;
+  conversation_turns?: ConversationTurn[];
 };
 
 export type VideoPlanPayload = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
@@ -129,18 +129,146 @@ const visualOptionLists: Record<
   atmosphere,
 };
 
+type SeedTopicKey =
+  | "subjectFocus"
+  | "environment"
+  | "compositionNotes"
+  | "lightingNotes"
+  | "styleNotes"
+  | "symbolismNotes"
+  | "atmosphereNotes"
+  | "outputIntent"
+  | "constraints"
+  | "moodProfile";
+
+type SeedResponses = Record<SeedTopicKey, string>;
+
+type SeedTopic = {
+  key: SeedTopicKey;
+  label: string;
+  question: string;
+  placeholder: string;
+};
+
+const seedTopics: SeedTopic[] = [
+  {
+    key: "subjectFocus",
+    label: "Subject focus",
+    question: "who or what is the hero moment?",
+    placeholder: "Hero subject, emotion, key action",
+  },
+  {
+    key: "environment",
+    label: "Environment & world",
+    question: "describe the setting, era, and density of the world.",
+    placeholder: "Location, time period, world-building details",
+  },
+  {
+    key: "compositionNotes",
+    label: "Cinematic composition",
+    question: "how should we frame and stage the shot?",
+    placeholder: "Framing, lens, depth cues, perspective",
+  },
+  {
+    key: "lightingNotes",
+    label: "Lighting & color mood",
+    question: "what lighting cues or palette anchor the moment?",
+    placeholder: "Light quality, temperature, contrast, palette",
+  },
+  {
+    key: "styleNotes",
+    label: "Style & medium",
+    question: "any style, medium, or render engine preferences?",
+    placeholder: "Photoreal, painterly, anime, render engine, etc.",
+  },
+  {
+    key: "symbolismNotes",
+    label: "Symbolism & narrative",
+    question: "what hidden meaning or storytelling beat matters most?",
+    placeholder: "Hidden meaning, storytelling beats, metaphors",
+  },
+  {
+    key: "atmosphereNotes",
+    label: "Atmosphere & effects",
+    question: "describe weather, particles, or implied sound design.",
+    placeholder: "Weather, particles, implied sound",
+  },
+  {
+    key: "outputIntent",
+    label: "Output intent",
+    question: "where will this still live (poster, wallpaper, key art, etc.)?",
+    placeholder: "Poster, key art, wallpaper, concept sheet, etc.",
+  },
+  {
+    key: "constraints",
+    label: "Constraints",
+    question: "any technical constraints or guardrails I must respect?",
+    placeholder: "Steps cap, printable color limits, SFW requirements, etc.",
+  },
+  {
+    key: "moodProfile",
+    label: "Mood profile",
+    question: "what recurring mood, palette, or motifs should persist across calls?",
+    placeholder: "Persisted tone, palette, motifs to carry into future calls",
+  },
+];
+
+const seedTopicOrder = seedTopics.map((topic) => topic.key);
+
+type ConversationMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+};
+
+type ConversationStage =
+  | "collecting"
+  | "summary"
+  | "model_select"
+  | "generating"
+  | "complete";
+
+function createSeedResponses(moodMemory: string): SeedResponses {
+  return {
+    subjectFocus: "",
+    environment: "",
+    compositionNotes: "",
+    lightingNotes: "",
+    styleNotes: "",
+    symbolismNotes: "",
+    atmosphereNotes: "",
+    outputIntent: "",
+    constraints: "",
+    moodProfile: moodMemory,
+  };
+}
+
+function getQuestionPrompt(index: number): string {
+  const topic = seedTopics[index];
+  if (!topic) {
+    return "Share your Vision Seed…";
+  }
+  const base = topic.question;
+  return index === 0 ? `Share your Vision Seed… ${base}` : base;
+}
+
+function buildVisionSeedText(responses: SeedResponses): string {
+  return seedTopics
+    .map((topic) => {
+      const value = responses[topic.key]?.trim();
+      if (!value) {
+        return null;
+      }
+      return `${topic.label}: ${value}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 export default function ImageBuilderPage() {
-  const [subjectFocus, setSubjectFocus] = useState("");
-  const [environment, setEnvironment] = useState("");
-  const [compositionNotes, setCompositionNotes] = useState("");
-  const [lightingNotes, setLightingNotes] = useState("");
-  const [styleNotes, setStyleNotes] = useState("");
-  const [symbolismNotes, setSymbolismNotes] = useState("");
-  const [atmosphereNotes, setAtmosphereNotes] = useState("");
-  const [outputIntent, setOutputIntent] = useState("");
-  const [model, setModel] = useState<ImagePromptPayload["model"]>("sdxl");
-  const [constraints, setConstraints] = useState("");
-  const [moodProfile, setMoodProfile] = useState("");
+  const [seedResponses, setSeedResponses] = useState<SeedResponses>(() =>
+    createSeedResponses("")
+  );
   const [selectedOptions, setSelectedOptions] = useState<
     ImagePromptPayload["selectedOptions"]
   >(() => createEmptySelectedOptions());
@@ -148,74 +276,24 @@ export default function ImageBuilderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerationResult | null>(null);
-  const [useSampleSeed, setUseSampleSeed] = useState(false);
   const [providerApiKey, setProviderApiKey] = useState("");
+  const [model, setModel] = useState<ImagePromptPayload["model"]>("sdxl");
+  const [conversationStage, setConversationStage] =
+    useState<ConversationStage>("collecting");
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [pendingInput, setPendingInput] = useState("");
+  const [summaryText, setSummaryText] = useState("");
+  const [refinementNotes, setRefinementNotes] = useState("");
+  const [confirmedRefinement, setConfirmedRefinement] = useState("");
+  const [moodMemory, setMoodMemory] = useState("");
+  const messageCounterRef = useRef(0);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (useSampleSeed) {
-      setSubjectFocus(SAMPLE_IMAGE_SEED.subjectFocus);
-      setEnvironment(SAMPLE_IMAGE_SEED.environment);
-      setCompositionNotes(SAMPLE_IMAGE_SEED.compositionNotes);
-      setLightingNotes(SAMPLE_IMAGE_SEED.lightingNotes);
-      setStyleNotes(SAMPLE_IMAGE_SEED.styleNotes);
-      setSymbolismNotes(SAMPLE_IMAGE_SEED.symbolismNotes);
-      setAtmosphereNotes(SAMPLE_IMAGE_SEED.atmosphereNotes);
-      setOutputIntent(SAMPLE_IMAGE_SEED.outputIntent);
-      setConstraints(SAMPLE_IMAGE_SEED.constraints);
-      setMoodProfile(SAMPLE_IMAGE_SEED.moodProfile);
-      setModel(SAMPLE_IMAGE_SEED.model);
-      setSelectedOptions({
-        cameraAngles: [...SAMPLE_IMAGE_SELECTIONS.cameraAngles],
-        shotSizes: [...SAMPLE_IMAGE_SELECTIONS.shotSizes],
-        composition: [...SAMPLE_IMAGE_SELECTIONS.composition],
-        cameraMovement: [...SAMPLE_IMAGE_SELECTIONS.cameraMovement],
-        lightingStyles: [...SAMPLE_IMAGE_SELECTIONS.lightingStyles],
-        colorPalettes: [...SAMPLE_IMAGE_SELECTIONS.colorPalettes],
-        atmosphere: [...SAMPLE_IMAGE_SELECTIONS.atmosphere],
-      });
-      setFiles([]);
-    } else {
-      setSubjectFocus("");
-      setEnvironment("");
-      setCompositionNotes("");
-      setLightingNotes("");
-      setStyleNotes("");
-      setSymbolismNotes("");
-      setAtmosphereNotes("");
-      setOutputIntent("");
-      setConstraints("");
-      setMoodProfile("");
-      setModel("sdxl");
-      setSelectedOptions(createEmptySelectedOptions());
-      setFiles([]);
-    }
-  }, [useSampleSeed]);
-
-  const manualVisionSeedText = useMemo(() => {
-    const sections = [
-      { label: "Subject focus", value: subjectFocus },
-      { label: "Environment & world", value: environment },
-      { label: "Cinematic composition", value: compositionNotes },
-      { label: "Lighting & color mood", value: lightingNotes },
-      { label: "Style & medium", value: styleNotes },
-      { label: "Symbolism & narrative", value: symbolismNotes },
-      { label: "Atmosphere & effects", value: atmosphereNotes },
-      { label: "Output intent", value: outputIntent },
-    ].filter((section) => section.value.trim().length > 0);
-
-    return sections
-      .map((section) => `${section.label}: ${section.value.trim()}`)
-      .join("\n");
-  }, [
-    atmosphereNotes,
-    compositionNotes,
-    environment,
-    lightingNotes,
-    outputIntent,
-    styleNotes,
-    subjectFocus,
-    symbolismNotes,
-  ]);
+  const nextMessageId = useCallback(() => {
+    messageCounterRef.current += 1;
+    return `msg-${messageCounterRef.current}`;
+  }, []);
 
   const selectedVisualOptions = useMemo(() => {
     return (Object.entries(selectedOptions) as Array<
@@ -223,40 +301,272 @@ export default function ImageBuilderPage() {
     >).flatMap(([key, ids]) => findVisualSnippets(visualOptionLists[key], ids));
   }, [selectedOptions]);
 
+  const manualVisionSeedText = useMemo(
+    () => buildVisionSeedText(seedResponses),
+    [seedResponses]
+  );
+
   const trimmedManualVisionSeedText = manualVisionSeedText.trim();
+
+  const confirmedRefinementText = confirmedRefinement.trim();
 
   const fallbackVisionSeedText = selectedVisualOptions
     .map((option) => `${option.label}: ${option.promptSnippet}`)
     .join("\n");
 
-  const visionSeedText =
-    trimmedManualVisionSeedText.length > 0
-      ? trimmedManualVisionSeedText
-      : fallbackVisionSeedText;
+  const combinedVisionSeedSections = [
+    trimmedManualVisionSeedText,
+    confirmedRefinementText
+      ? `Targeted refinements: ${confirmedRefinementText}`
+      : null,
+  ].filter(Boolean);
 
-  const hasSeedContent =
-    trimmedManualVisionSeedText.length > 0 ||
-    selectedVisualOptions.length > 0 ||
-    files.length > 0;
+  const visionSeedText = combinedVisionSeedSections.length
+    ? combinedVisionSeedSections.join("\n\n")
+    : fallbackVisionSeedText;
 
-  const canSubmit = hasSeedContent && !isSubmitting;
+  const conversationTurns = useMemo(() => {
+    return messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      mood: moodMemory.trim().length ? moodMemory.trim() : undefined,
+    }));
+  }, [messages, moodMemory]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const messageContainerHeight = messages.length > 3 ? "max-h-[420px]" : "";
+
+  const resetConversation = useCallback(
+    (prefill?: SeedResponses) => {
+      messageCounterRef.current = 0;
+      const baseResponses = prefill
+        ? { ...prefill }
+        : createSeedResponses(moodMemory);
+      setSeedResponses(baseResponses);
+      setCurrentQuestionIndex(0);
+      setConversationStage("collecting");
+      const firstAnswer = prefill?.subjectFocus?.trim() ?? baseResponses.subjectFocus;
+      setPendingInput(firstAnswer ?? "");
+      setSummaryText("");
+      setRefinementNotes("");
+      setConfirmedRefinement("");
+      setMessages([
+        {
+          id: nextMessageId(),
+          role: "assistant",
+          content: getQuestionPrompt(0),
+        },
+      ]);
+      setError(null);
+    },
+    [moodMemory, nextMessageId]
+  );
+
+  useEffect(() => {
+    resetConversation();
+  }, [resetConversation]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages]);
+
+  function advanceConversation(nextIndex: number, responses: SeedResponses) {
+    if (nextIndex >= seedTopics.length) {
+      finalizeSummary(responses);
+      return;
+    }
+
+    const promptText = getQuestionPrompt(nextIndex);
+    setCurrentQuestionIndex(nextIndex);
+    setConversationStage("collecting");
+    setMessages((previous) => [
+      ...previous,
+      { id: nextMessageId(), role: "assistant", content: promptText },
+    ]);
+
+    const nextTopic = seedTopics[nextIndex];
+    const existingAnswer = responses[nextTopic.key]?.trim() ?? "";
+    if (existingAnswer.length > 0) {
+      setPendingInput(existingAnswer);
+    } else if (nextTopic.key === "moodProfile" && moodMemory.trim().length > 0) {
+      setPendingInput(moodMemory);
+    } else {
+      setPendingInput("");
+    }
+  }
+
+  function finalizeSummary(responses: SeedResponses) {
+    const summary = buildVisionSeedText(responses);
+    setSummaryText(summary);
+    setConversationStage("summary");
+    setCurrentQuestionIndex(seedTopics.length);
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: nextMessageId(),
+        role: "assistant",
+        content:
+          "Here's how I'm interpreting your Vision Seed:\n" +
+          (summary.length ? summary : "(no details captured yet)") +
+          "\n\nNeed any targeted refinements before we choose a model?",
+      },
+    ]);
+  }
+
+  function handleSeedSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (conversationStage !== "collecting") {
+      return;
+    }
+
+    const topic = seedTopics[currentQuestionIndex];
+    if (!topic) {
+      return;
+    }
+
+    const trimmed = pendingInput.trim();
+    if (!trimmed.length) {
+      return;
+    }
+
+    const updatedResponses: SeedResponses = {
+      ...seedResponses,
+      [topic.key]: trimmed,
+    } as SeedResponses;
+    setSeedResponses(updatedResponses);
+    if (topic.key === "moodProfile") {
+      setMoodMemory(trimmed);
+    }
+
+    setMessages((previous) => [
+      ...previous,
+      { id: nextMessageId(), role: "user", content: trimmed },
+    ]);
+    setPendingInput("");
+
+    advanceConversation(currentQuestionIndex + 1, updatedResponses);
+  }
+
+  function handleSkipQuestion() {
+    if (conversationStage !== "collecting") {
+      return;
+    }
+    const topic = seedTopics[currentQuestionIndex];
+    if (!topic) {
+      return;
+    }
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: nextMessageId(),
+        role: "user",
+        content: `Let's revisit ${topic.label.toLowerCase()} later.`,
+      },
+    ]);
+    setPendingInput("");
+    advanceConversation(currentQuestionIndex + 1, seedResponses);
+  }
+
+  function handleConfirmSummary() {
+    if (conversationStage !== "summary") {
+      return;
+    }
+
+    const trimmedRefinement = refinementNotes.trim();
+    setConfirmedRefinement(trimmedRefinement);
+
+    setMessages((previous) => {
+      const updates = [...previous];
+      if (trimmedRefinement.length) {
+        updates.push({
+          id: nextMessageId(),
+          role: "user",
+          content: trimmedRefinement,
+        });
+      } else {
+        updates.push({
+          id: nextMessageId(),
+          role: "user",
+          content: "Summary looks good — let's pick a model.",
+        });
+      }
+      updates.push({
+        id: nextMessageId(),
+        role: "assistant",
+        content: "Which model should we use (SDXL, Flux, or Illustrious)?",
+      });
+      return updates;
+    });
+
+    setRefinementNotes("");
+    setConversationStage("model_select");
+  }
+
+  function handleModelSelection(value: ImagePromptPayload["model"]) {
+    if (conversationStage !== "model_select" || isSubmitting) {
+      return;
+    }
+
+    const modelLabel = modelOptions.find((option) => option.value === value)?.label ?? value;
+    setModel(value);
+    setMessages((previous) => [
+      ...previous,
+      { id: nextMessageId(), role: "user", content: `Use ${modelLabel}.` },
+    ]);
+
+    void submitToDirector(value, modelLabel);
+  }
+
+  async function submitToDirector(
+    chosenModel: ImagePromptPayload["model"],
+    modelLabel: string
+  ) {
+    if (isSubmitting) {
+      return;
+    }
+
+    const trimmedMoodProfile = moodMemory.trim().length
+      ? moodMemory.trim()
+      : null;
+
+    if (
+      !visionSeedText.trim().length &&
+      !selectedVisualOptions.length &&
+      files.length === 0
+    ) {
+      setError("Share at least one Vision Seed detail, control, or reference image before generating.");
+      return;
+    }
 
     setIsSubmitting(true);
+    setConversationStage("generating");
     setError(null);
     setResult(null);
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: nextMessageId(),
+        role: "assistant",
+        content: `Composing a ${modelLabel} prompt…`,
+      },
+    ]);
 
     try {
       const images = await encodeFiles(files);
       const payload: ImagePromptPayload = {
         vision_seed_text: visionSeedText,
-        model,
+        model: chosenModel,
         selectedOptions,
-        mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
-        constraints: constraints.trim().length ? constraints.trim() : null,
+        mood_profile: trimmedMoodProfile,
+        constraints: seedResponses.constraints.trim().length
+          ? seedResponses.constraints.trim()
+          : null,
+        conversation_turns: conversationTurns.length
+          ? conversationTurns
+          : undefined,
       };
 
       const requestPayload: DirectorRequest = {
@@ -341,6 +651,16 @@ export default function ImageBuilderPage() {
         fallbackText: promptText,
         media: responseJson.media ?? [],
       });
+      setConversationStage("complete");
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: nextMessageId(),
+          role: "assistant",
+          content:
+            "Prompt delivered. Restart the Vision Seed interview anytime to iterate again.",
+        },
+      ]);
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -348,89 +668,258 @@ export default function ImageBuilderPage() {
           ? submissionError.message
           : "Failed to generate prompt"
       );
+      setConversationStage("model_select");
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  function handleLoadSampleSeed() {
+    const sampleResponses: SeedResponses = {
+      subjectFocus: SAMPLE_IMAGE_SEED.subjectFocus,
+      environment: SAMPLE_IMAGE_SEED.environment,
+      compositionNotes: SAMPLE_IMAGE_SEED.compositionNotes,
+      lightingNotes: SAMPLE_IMAGE_SEED.lightingNotes,
+      styleNotes: SAMPLE_IMAGE_SEED.styleNotes,
+      symbolismNotes: SAMPLE_IMAGE_SEED.symbolismNotes,
+      atmosphereNotes: SAMPLE_IMAGE_SEED.atmosphereNotes,
+      outputIntent: SAMPLE_IMAGE_SEED.outputIntent,
+      constraints: SAMPLE_IMAGE_SEED.constraints,
+      moodProfile: SAMPLE_IMAGE_SEED.moodProfile,
+    };
+
+    setMoodMemory(SAMPLE_IMAGE_SEED.moodProfile);
+    setSeedResponses(sampleResponses);
+    setSelectedOptions({
+      cameraAngles: [...SAMPLE_IMAGE_SELECTIONS.cameraAngles],
+      shotSizes: [...SAMPLE_IMAGE_SELECTIONS.shotSizes],
+      composition: [...SAMPLE_IMAGE_SELECTIONS.composition],
+      cameraMovement: [...SAMPLE_IMAGE_SELECTIONS.cameraMovement],
+      lightingStyles: [...SAMPLE_IMAGE_SELECTIONS.lightingStyles],
+      colorPalettes: [...SAMPLE_IMAGE_SELECTIONS.colorPalettes],
+      atmosphere: [...SAMPLE_IMAGE_SELECTIONS.atmosphere],
+    });
+    setFiles([]);
+    setModel(SAMPLE_IMAGE_SEED.model);
+    setSummaryText(buildVisionSeedText(sampleResponses));
+    setRefinementNotes("");
+    setConfirmedRefinement("");
+    setConversationStage("summary");
+    setCurrentQuestionIndex(seedTopics.length);
+    setError(null);
+    setResult(null);
+    messageCounterRef.current = 0;
+
+    setMessages(() => {
+      const transcript: ConversationMessage[] = [];
+      seedTopicOrder.forEach((key, index) => {
+        const prompt = getQuestionPrompt(index);
+        transcript.push({
+          id: nextMessageId(),
+          role: "assistant",
+          content: prompt,
+        });
+        const value = sampleResponses[key as SeedTopicKey];
+        if (value) {
+          transcript.push({
+            id: nextMessageId(),
+            role: "user",
+            content: value,
+          });
+        }
+      });
+      transcript.push({
+        id: nextMessageId(),
+        role: "assistant",
+        content:
+          "Here's how I'm interpreting your Vision Seed:\n" +
+          buildVisionSeedText(sampleResponses) +
+          "\n\nNeed any targeted refinements before we choose a model?",
+      });
+      return transcript;
+    });
+  }
+
   return (
     <section className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur"
-      >
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-3">
-            <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
-              Vision Architect
-            </p>
-            <h1 className="text-3xl font-semibold text-white">
-              Build a cinematic still image prompt
-            </h1>
-            <p className="text-sm text-slate-300">
-              Fill in the Vision Seed sections, pick cinematic controls, and let the Director Core translate everything into SDXL, Flux, or Illustrious language.
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-white/30 bg-slate-900 text-canvas-accent focus:ring-canvas-accent"
-              checked={useSampleSeed}
-              onChange={(event) => setUseSampleSeed(event.target.checked)}
-            />
-            Use sample data
-          </label>
+      <div className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur">
+        <header className="space-y-3">
+          <p className="text-xs uppercase tracking-[0.3em] text-canvas-accent">
+            Vision Architect
+          </p>
+          <h1 className="text-3xl font-semibold text-white">
+            Multi-turn Vision Seed interview
+          </h1>
+          <p className="text-sm text-slate-300">
+            Chat through each part of your Vision Seed, confirm the summary, pick a
+            model, and then let Director Core compose the cinematic SDXL, Flux, or
+            Illustrious prompt.
+          </p>
         </header>
 
-        <SeedSection
-          label="Subject focus"
-          value={subjectFocus}
-          onChange={setSubjectFocus}
-          placeholder="Hero subject, emotion, key action"
-        />
-        <SeedSection
-          label="Environment & world"
-          value={environment}
-          onChange={setEnvironment}
-          placeholder="Location, time period, world-building details"
-        />
-        <SeedSection
-          label="Cinematic composition"
-          value={compositionNotes}
-          onChange={setCompositionNotes}
-          placeholder="Framing, lens, depth cues, perspective"
-        />
-        <SeedSection
-          label="Lighting & color mood"
-          value={lightingNotes}
-          onChange={setLightingNotes}
-          placeholder="Light quality, temperature, contrast, palette"
-        />
-        <SeedSection
-          label="Style & medium"
-          value={styleNotes}
-          onChange={setStyleNotes}
-          placeholder="Photoreal, painterly, anime, render engine, etc."
-        />
-        <SeedSection
-          label="Symbolism & narrative"
-          value={symbolismNotes}
-          onChange={setSymbolismNotes}
-          placeholder="Hidden meaning, storytelling beats, metaphors"
-        />
-        <SeedSection
-          label="Atmosphere & effects"
-          value={atmosphereNotes}
-          onChange={setAtmosphereNotes}
-          placeholder="Weather, particles, implied sound"
-        />
-        <SeedSection
-          label="Output intent"
-          value={outputIntent}
-          onChange={setOutputIntent}
-          placeholder="Poster, key art, wallpaper, concept sheet, etc."
-        />
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => resetConversation()}
+            className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/40"
+          >
+            Restart Vision Seed
+          </button>
+          <button
+            type="button"
+            onClick={handleLoadSampleSeed}
+            className="rounded-full border border-canvas-accent/40 bg-canvas-accent/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-canvas-accent"
+          >
+            Load sample Vision Seed
+          </button>
+        </div>
 
+        <div className="space-y-4 rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+          <div
+            ref={scrollContainerRef}
+            className={`space-y-3 overflow-y-auto ${messageContainerHeight}`}
+            aria-live="polite"
+          >
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${
+                  message.role === "assistant" ? "justify-start" : "justify-end"
+                }`}
+              >
+                <div
+                  className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    message.role === "assistant"
+                      ? "bg-white/10 text-white"
+                      : "bg-canvas-accent/20 text-white"
+                  }`}
+                >
+                  {message.content}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {conversationStage === "collecting" ? (
+            <form onSubmit={handleSeedSubmit} className="space-y-3">
+              <label className="block text-sm font-semibold text-slate-200">
+                {seedTopics[currentQuestionIndex]?.label}
+              </label>
+              <textarea
+                value={pendingInput}
+                onChange={(event) => setPendingInput(event.target.value)}
+                rows={3}
+                placeholder={seedTopics[currentQuestionIndex]?.placeholder}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+              />
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="submit"
+                  className="rounded-full bg-canvas-accent px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-indigo-500/30"
+                >
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipQuestion}
+                  className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {conversationStage === "summary" ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-sm text-white">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Vision Seed interpretation
+                </p>
+                <p className="whitespace-pre-wrap text-sm text-slate-100">
+                  {summaryText || "(no details captured yet)"}
+                </p>
+              </div>
+              <label className="block space-y-2">
+                <span className="text-sm font-semibold text-slate-200">
+                  Targeted refinement note (optional)
+                </span>
+                <textarea
+                  value={refinementNotes}
+                  onChange={(event) => setRefinementNotes(event.target.value)}
+                  rows={3}
+                  placeholder="Call out palette nudges, symbolism, or constraints you want emphasized."
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+                />
+              </label>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleConfirmSummary}
+                  className="rounded-full bg-canvas-accent px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-indigo-500/30"
+                >
+                  Confirm & choose model
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resetConversation(seedResponses)}
+                  className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
+                >
+                  Re-run interview
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {conversationStage === "model_select" ? (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-slate-200">
+                Which model should bring this to life?
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {modelOptions.map((option) => {
+                  const isActive = option.value === model;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() => handleModelSelection(option.value)}
+                      className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                        isActive
+                          ? "border-canvas-accent bg-canvas-accent/20 text-white"
+                          : "border-white/10 bg-slate-900/50 text-slate-200 hover:border-white/20"
+                      } ${isSubmitting ? "opacity-60" : ""}`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {conversationStage === "generating" ? (
+            <p className="text-sm text-slate-300">
+              Crafting the Director Core prompt…
+            </p>
+          ) : null}
+
+          {conversationStage === "complete" ? (
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => resetConversation()}
+                className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
+              >
+                Start another Vision Seed
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <aside className="space-y-6">
         <ImageDropzone
           files={files}
           onFilesChange={setFiles}
@@ -459,57 +948,6 @@ export default function ImageBuilderPage() {
           ))}
         </fieldset>
 
-        <div className="space-y-4 rounded-3xl border border-white/10 bg-slate-950/40 p-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-sm font-semibold text-slate-200">Model</label>
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {modelOptions.map((option) => {
-                  const isActive = option.value === model;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setModel(option.value)}
-                      className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
-                        isActive
-                          ? "border-canvas-accent bg-canvas-accent/20 text-white"
-                          : "border-white/10 bg-slate-900/50 text-slate-200 hover:border-white/20"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-slate-200">
-                Optional constraints
-              </label>
-              <textarea
-                value={constraints}
-                onChange={(event) => setConstraints(event.target.value)}
-                rows={3}
-                placeholder="Steps cap, printable color limits, SFW requirements, etc."
-                className="min-h-[96px] rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-              />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-200">
-              Mood profile (optional)
-            </label>
-            <textarea
-              value={moodProfile}
-              onChange={(event) => setMoodProfile(event.target.value)}
-              rows={3}
-              placeholder="Persisted tone, palette, motifs to carry into future calls"
-              className="min-h-[96px] rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-            />
-          </div>
-        </div>
-
         <ProviderApiKeyInput
           value={providerApiKey}
           onChange={setProviderApiKey}
@@ -522,21 +960,6 @@ export default function ImageBuilderPage() {
           helperText="No Google AI Studio key or browser storage is required."
         />
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="w-full rounded-xl bg-canvas-accent px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition disabled:cursor-not-allowed disabled:bg-slate-600"
-        >
-          {isSubmitting ? "Generating…" : "Generate image prompt"}
-        </button>
-        {error ? (
-          <p className="text-sm text-rose-400" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </form>
-
-      <aside className="space-y-6">
         {!result && !error ? (
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
             Prompt results will appear here after generation.
@@ -582,31 +1005,6 @@ export default function ImageBuilderPage() {
         ) : null}
       </aside>
     </section>
-  );
-}
-
-function SeedSection({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="block space-y-2">
-      <span className="text-sm font-semibold text-slate-200">{label}</span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={3}
-        placeholder={placeholder}
-        className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
-      />
-    </label>
   );
 }
 
@@ -671,4 +1069,3 @@ function parsePromptSections(text: string): PromptSections {
     settings: blocks.slice(2).join("\n\n"),
   };
 }
-

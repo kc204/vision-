@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import * as directorClient from "@/lib/directorClient";
 import type { DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
+  ConversationTurn,
   DirectorRequest,
   ImagePromptPayload,
   VideoPlanPayload,
@@ -405,6 +406,7 @@ function parseImagePromptPayload(
     selectedOptions,
     mood_profile = null,
     constraints = null,
+    conversation_turns,
   } = value as UnknownRecord;
 
   if (!isNonEmptyString(vision_seed_text)) {
@@ -420,12 +422,18 @@ function parseImagePromptPayload(
     return selections;
   }
 
+  const conversationTurns = parseConversationTurns(conversation_turns);
+  if (!conversationTurns.ok) {
+    return conversationTurns;
+  }
+
   const payload: ImagePromptPayload = {
     vision_seed_text: vision_seed_text.trim(),
     model,
     selectedOptions: selections.value,
     mood_profile: parseNullableString(mood_profile),
     constraints: parseNullableString(constraints),
+    conversation_turns: conversationTurns.value,
   };
 
   return { ok: true, value: payload };
@@ -631,6 +639,59 @@ function parseSelections(value: unknown):
   }
 
   return { ok: true, value: selections };
+}
+
+function parseConversationTurns(value: unknown):
+  | { ok: true; value: ImagePromptPayload["conversation_turns"] }
+  | { ok: false; error: string } {
+  if (value === undefined || value === null) {
+    return { ok: true, value: undefined };
+  }
+
+  if (!Array.isArray(value)) {
+    return { ok: false, error: "conversation_turns must be an array" };
+  }
+
+  const turns: ConversationTurn[] = [];
+
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      return {
+        ok: false,
+        error: "conversation_turns entries must be objects",
+      };
+    }
+
+    const { role, content, mood } = entry as UnknownRecord;
+
+    if (role !== "assistant" && role !== "user") {
+      return {
+        ok: false,
+        error: "conversation_turns role must be assistant or user",
+      };
+    }
+
+    if (!isNonEmptyString(content)) {
+      return {
+        ok: false,
+        error: "conversation_turns content must be a non-empty string",
+      };
+    }
+
+    const moodValue = parseNullableString(mood);
+    const turn: ConversationTurn = {
+      role,
+      content: content.trim(),
+    };
+
+    if (moodValue !== null) {
+      turn.mood = moodValue;
+    }
+
+    turns.push(turn);
+  }
+
+  return { ok: true, value: turns.length ? turns : undefined };
 }
 
 function parseCinematicControlSelections(value: unknown):
