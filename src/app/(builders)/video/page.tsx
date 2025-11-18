@@ -1283,8 +1283,9 @@ function segmentScriptIntoBeats(script: string): PlannerBeat[] {
     .filter(Boolean);
 
   if (segments.length < 4) {
-    const sentences = normalized
-      .split(/(?<=[.!?])\s+/)
+    const sentencesSource = normalized.replace(/\n+/g, " ");
+    const sentences = sentencesSource
+      .split(/(?<=[.!?]) +/)
       .map((sentence) => sentence.trim())
       .filter(Boolean);
     const target = Math.min(8, Math.max(4, sentences.length || 1));

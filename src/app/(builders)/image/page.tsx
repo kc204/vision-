@@ -175,7 +175,7 @@ function createSeedResponses(initialSubject: string): SeedResponses {
 
 export default function ImageBuilderPage() {
   const [seedResponses, setSeedResponses] = useState<SeedResponses>(() =>
-    createSeedResponses("")
+    createSeedResponses()
   );
   const [selectedOptions, setSelectedOptions] = useState<
     ImagePromptPayload["selectedOptions"]
@@ -199,6 +199,14 @@ export default function ImageBuilderPage() {
   const messageCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+  }, [messages]);
+
   const nextMessageId = useCallback(() => {
     messageCounterRef.current += 1;
     return `msg-${messageCounterRef.current}`;
@@ -219,6 +227,14 @@ export default function ImageBuilderPage() {
       .map((option) => `${option.label}: ${option.promptSnippet}`)
       .join("\n");
   }, [selectedVisualOptions]);
+
+  const manualVisionSeedText = useMemo(() => {
+    const segments = [summaryText, confirmedRefinement]
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
+
+    return segments.join("\n\n");
+  }, [confirmedRefinement, summaryText]);
 
   const trimmedManualVisionSeedText = useMemo(
     () => manualVisionSeedText.trim(),
@@ -537,6 +553,38 @@ export default function ImageBuilderPage() {
     }
   }
 
+  function resetConversation(prefill?: SeedResponses) {
+    const baseResponses = prefill ?? createSeedResponses();
+    const firstTopicKey = seedTopics[0]?.key;
+    setSeedResponses(baseResponses);
+    setSelectedOptions(createEmptySelectedOptions());
+    setFiles([]);
+    setModel("sdxl");
+    setSummaryText("");
+    setRefinementNotes("");
+    setConfirmedRefinement("");
+    setResult(null);
+    setError(null);
+    setConversationStage("collecting");
+    setCurrentQuestionIndex(0);
+    setIsSubmitting(false);
+    const initialPendingInput = firstTopicKey
+      ? baseResponses[firstTopicKey].trim()
+      : "";
+    setPendingInput(initialPendingInput);
+    setMoodMemory(baseResponses.moodProfile);
+    messageCounterRef.current = 0;
+
+    const firstPrompt = getQuestionPrompt(0);
+    setMessages(
+      firstPrompt
+        ? [
+            { id: nextMessageId(), role: "assistant", content: firstPrompt },
+          ]
+        : []
+    );
+  }
+
   function handleLoadSampleSeed() {
     const sampleResponses: SeedResponses = {
       subjectFocus: SAMPLE_IMAGE_SEED.subjectFocus,
@@ -584,7 +632,7 @@ export default function ImageBuilderPage() {
           role: "assistant",
           content: prompt,
         });
-        const value = sampleResponses[key as SeedTopicKey];
+        const value = sampleResponses[key];
         if (value) {
           transcript.push({
             id: nextMessageId(),
