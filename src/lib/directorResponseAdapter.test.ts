@@ -105,6 +105,45 @@ test("mapDirectorCoreSuccess stringifies video plans and media", () => {
   assert.equal(response.media?.[0]?.frames?.[0]?.url, "https://cdn.example/frame.png");
 });
 
+test("mapDirectorCoreSuccess returns plan-only video responses", () => {
+  const storyboard: VideoPlanResponse = {
+    thumbnailConcept: "Storm over the city",
+    scenes: [
+      {
+        segment_title: "Prologue",
+        scene_description: "Describe the stormy skyline.",
+        main_subject: "City",
+        camera_movement: "Dolly",
+        visual_tone: "Moody",
+        motion: "Slow",
+        mood: "Ominous",
+        narrative: "Set the scene",
+        continuity_lock: {
+          subject_identity: "Narrator",
+          lighting_and_palette: "Cool",
+          camera_grammar: "Wide",
+          environment_motif: "Rain",
+        },
+        acceptance_check: ["Show skyline"],
+      },
+    ],
+  };
+
+  const response = mapDirectorCoreSuccess({
+    success: true,
+    mode: "video_plan",
+    provider: "veo-3.1",
+    videos: [],
+    storyboard,
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(response.mode, "video_plan");
+  assert.ok(response.text?.includes("Storm over the city"));
+  assert.equal(response.media?.length, 0);
+  assert.equal(response.result, storyboard);
+});
+
 test("mapDirectorCoreSuccess attaches loop frames", () => {
   const response = mapDirectorCoreSuccess(createLoopSuccess());
 
