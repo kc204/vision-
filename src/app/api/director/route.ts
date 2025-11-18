@@ -294,7 +294,7 @@ function getMissingKeyMessage(mode: DirectorRequest["mode"]): string {
     case "loop_sequence":
       return "Provide a Nano Banana API key via the request or set NANO_BANANA_API_KEY.";
     case "video_plan":
-      return "Provide a Veo API key via the request or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.";
+      return "Provide a Veo API key via the request or configure VERTEX_VEO_API_KEY or VEO_API_KEY.";
     case "image_prompt":
     default:
       return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
@@ -310,7 +310,8 @@ function getServerGeminiApiKey(): string | undefined {
 
 function getServerVeoApiKey(): string | undefined {
   return (
-    getEnvApiKey(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
+    getEnvApiKey(process.env.VERTEX_VEO_API_KEY) ??
+    getEnvApiKey(process.env.VEO_API_KEY)
   );
 }
 
