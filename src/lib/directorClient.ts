@@ -220,7 +220,7 @@ async function callGeminiImageProvider(
 
   const { images, promptText, metadata } = parseGeminiImageResponse(data);
 
-  if (images.length === 0) {
+  if (images.length === 0 && !promptText) {
     return {
       success: false,
       provider: "gemini",
@@ -1173,11 +1173,11 @@ function buildVeoOperationUrl(
 ): string {
   const normalizedBase = normalizeBaseUrl(baseUrl);
   const normalizedName = operationName.replace(/^\/+/, "");
-  const baseUrl = operationName.startsWith("http")
+  const operationUrl = operationName.startsWith("http")
     ? operationName.replace(/\/+$/, "")
     : `${normalizedBase}/${normalizedName}`;
-  const delimiter = baseUrl.includes("?") ? "&" : "?";
-  return `${baseUrl}${delimiter}key=${encodeURIComponent(apiKey)}`;
+  const delimiter = operationUrl.includes("?") ? "&" : "?";
+  return `${operationUrl}${delimiter}key=${encodeURIComponent(apiKey)}`;
 }
 
 function extractOperationPayload(payload: Record<string, unknown>): unknown {

@@ -94,6 +94,22 @@ test("mapDirectorCoreSuccess normalizes image prompt payloads", () => {
   assert.equal(response.media?.[0]?.caption, "Hero");
 });
 
+test("mapDirectorCoreSuccess preserves prompt-only payloads", () => {
+  const response = mapDirectorCoreSuccess({
+    success: true,
+    mode: "image_prompt",
+    provider: "gemini",
+    images: [],
+    promptText: "Prompt only",
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(response.mode, "image_prompt");
+  assert.equal(response.text, "Prompt only");
+  assert.equal(response.media?.length, 0);
+  assert.equal(response.result, "Prompt only");
+});
+
 test("mapDirectorCoreSuccess stringifies video plans and media", () => {
   const response = mapDirectorCoreSuccess(createVideoSuccess());
 
