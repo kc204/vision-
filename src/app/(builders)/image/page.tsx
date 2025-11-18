@@ -195,6 +195,7 @@ export default function ImageBuilderPage() {
   const [refinementNotes, setRefinementNotes] = useState("");
   const [confirmedRefinement, setConfirmedRefinement] = useState("");
   const [moodMemory, setMoodMemory] = useState("");
+  const [manualVisionSeedText, setManualVisionSeedText] = useState("");
   const messageCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -549,9 +550,11 @@ export default function ImageBuilderPage() {
       constraints: SAMPLE_IMAGE_SEED.constraints,
       moodProfile: SAMPLE_IMAGE_SEED.moodProfile,
     };
+    const sampleSeedText = buildVisionSeedText(sampleResponses);
 
     setMoodMemory(SAMPLE_IMAGE_SEED.moodProfile);
     setSeedResponses(sampleResponses);
+    setManualVisionSeedText(sampleSeedText);
     setSelectedOptions({
       cameraAngles: [...SAMPLE_IMAGE_SELECTIONS.cameraAngles],
       shotSizes: [...SAMPLE_IMAGE_SELECTIONS.shotSizes],
@@ -563,7 +566,7 @@ export default function ImageBuilderPage() {
     });
     setFiles([]);
     setModel(SAMPLE_IMAGE_SEED.model);
-    setSummaryText(buildVisionSeedText(sampleResponses));
+    setSummaryText(sampleSeedText);
     setRefinementNotes("");
     setConfirmedRefinement("");
     setConversationStage("summary");
@@ -595,7 +598,7 @@ export default function ImageBuilderPage() {
         role: "assistant",
         content:
           "Here's how I'm interpreting your Vision Seed:\n" +
-          buildVisionSeedText(sampleResponses) +
+          sampleSeedText +
           "\n\nNeed any targeted refinements before we choose a model?",
       });
       return transcript;
@@ -622,7 +625,10 @@ export default function ImageBuilderPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => resetConversation()}
+            onClick={() => {
+              setManualVisionSeedText("");
+              resetConversation();
+            }}
             className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/40"
           >
             Restart Vision Seed
@@ -724,7 +730,10 @@ export default function ImageBuilderPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => resetConversation(seedResponses)}
+                  onClick={() => {
+                    setManualVisionSeedText(buildVisionSeedText(seedResponses));
+                    resetConversation(seedResponses);
+                  }}
                   className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
                 >
                   Re-run interview
@@ -767,19 +776,43 @@ export default function ImageBuilderPage() {
             </p>
           ) : null}
 
-          {conversationStage === "complete" ? (
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => resetConversation()}
-                className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
-              >
-                Start another Vision Seed
-              </button>
-            </div>
-          ) : null}
-        </div>
+        {conversationStage === "complete" ? (
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setManualVisionSeedText("");
+                resetConversation();
+              }}
+              className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
+            >
+              Start another Vision Seed
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      <div className="space-y-2 rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-200">
+            Manual Vision Seed prose
+          </span>
+          <span className="text-xs uppercase tracking-wide text-slate-400">
+            Optional
+          </span>
+        </div>
+        <textarea
+          value={manualVisionSeedText}
+          onChange={(event) => setManualVisionSeedText(event.target.value)}
+          rows={4}
+          placeholder="Summarize mood, symbolism, or story beats you want baked into the prompt."
+          className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+        />
+        <p className="text-xs text-slate-400">
+          We'll merge this freeform memo with your cinematic controls before handing the Vision Seed to Director Core.
+        </p>
+      </div>
+    </div>
 
       <aside className="space-y-6">
         <ImageDropzone
