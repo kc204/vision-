@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import * as directorClient from "@/lib/directorClient";
 import type { DirectorProviderCredentials } from "@/lib/directorClient";
 import type {
+  ConversationTurn,
   DirectorRequest,
   ImagePromptPayload,
   VideoPlanPayload,
@@ -296,6 +297,7 @@ function parseImagePromptPayload(
     glossary,
     mood_profile = null,
     constraints = null,
+    conversation_turns,
   } = value as UnknownRecord;
 
   if (!isNonEmptyString(vision_seed_text)) {
@@ -323,6 +325,7 @@ function parseImagePromptPayload(
     glossary: glossaryResult.value,
     mood_profile: parseNullableString(mood_profile),
     constraints: parseNullableString(constraints),
+    conversation_turns: conversationTurns.value,
   };
 
   return { ok: true, value: payload };

@@ -39,6 +39,7 @@ export type ImagePromptPayload = {
   glossary: VisualOptionGlossary;
   mood_profile: string | null;
   constraints: string | null;
+  conversation_turns?: ConversationTurn[];
 };
 
 export type VideoPlanPayload = {
