@@ -18,6 +18,7 @@ export function parseModelList(value: string | undefined, fallback: string[]): s
 }
 
 export const GEMINI_ALLOWED_MODELS = [
+  "gemini-2.5-flash-image",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-1.5-pro",

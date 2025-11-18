@@ -26,6 +26,7 @@ const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
 const DEFAULT_GEMINI_IMAGE_MODELS = [
+  "gemini-2.5-flash-image",
   "imagen-3.0-generate-001",
   "gemini-1.5-pro",
 ] as const;
