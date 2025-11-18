@@ -276,14 +276,29 @@ export default function ImageBuilderPage() {
         body: JSON.stringify(requestPayload),
       });
 
-      const rawResponseJson = (await response.json().catch(() => null)) as
-        | DirectorResponse
-        | { error?: string }
-        | null;
+      const responseClone = response.clone();
+      let rawBodyText: string | null = null;
+      const rawResponseJson = (await response
+        .json()
+        .catch(async (parseError) => {
+          rawBodyText = await responseClone.text().catch(() => null);
+          console.error(
+            "Failed to parse director response JSON",
+            parseError,
+            rawBodyText
+          );
+          return null;
+        })) as DirectorResponse | { error?: string } | null;
 
       if (!response.ok) {
-        const message = (rawResponseJson as { error?: string } | null)?.error;
-        throw new Error(message ?? "Failed to generate prompt");
+        rawBodyText ??= await responseClone.text().catch(() => null);
+
+        const message =
+          (rawResponseJson as { error?: string } | null)?.error ??
+          (rawBodyText
+            ? `HTTP ${response.status}: ${rawBodyText}`
+            : `HTTP ${response.status} error`);
+        throw new Error(message);
       }
 
       if (
@@ -291,7 +306,13 @@ export default function ImageBuilderPage() {
         typeof rawResponseJson !== "object" ||
         !("success" in rawResponseJson)
       ) {
-        throw new Error("Empty response from director");
+        const bodySummary =
+          rawBodyText ??
+          (rawResponseJson ? JSON.stringify(rawResponseJson) : null) ??
+          "No response body returned";
+        throw new Error(
+          `Invalid response format (HTTP ${response.status}). Raw response: ${bodySummary}`
+        );
       }
 
       const responseJson: DirectorResponse = rawResponseJson;
