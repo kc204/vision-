@@ -95,7 +95,7 @@ export type DirectorCoreSuccess =
   | {
       success: true;
       mode: "video_plan";
-      provider: "veo-3.1";
+      provider: string;
       videos: GeneratedVideo[];
       storyboard?: unknown;
       metadata?: Record<string, unknown>;
