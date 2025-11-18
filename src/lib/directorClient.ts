@@ -290,6 +290,41 @@ async function callGeminiVideoPlanProvider(
     };
   }
 
+  if (!response.ok) {
+    return {
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: extractErrorMessage(data, "Gemini video plan request failed."),
+      details: data,
+    };
+  }
+
+  const { text, metadata } = parseGeminiTextResponse(data);
+
+  if (!text) {
+    return {
+      success: false,
+      provider: "gemini",
+      status: response.status,
+      error: "Gemini did not return any storyboard text in the response.",
+      details: data,
+    };
+  }
+
+  const storyboard = tryParseJson(text);
+  const enrichedMetadata = mergeMetadataWithRawText(metadata, text);
+
+  return {
+    success: true,
+    mode: "video_plan",
+    provider: "gemini",
+    storyboard: storyboard ?? undefined,
+    storyboardText: text,
+    metadata: enrichedMetadata,
+  };
+}
+
 async function callGeminiLoopSequenceProvider(
   req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
   credentials?: DirectorProviderCredentials
