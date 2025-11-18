@@ -4,6 +4,7 @@ import {
   ensureImageCapableGeminiModels,
   isImageCapableGeminiModel,
   parseModelList,
+  resolveGoogleModel,
 } from "./googleModels";
 import { DIRECTOR_CORE_SYSTEM_PROMPT } from "./prompts/directorCore";
 import { logGenerativeClientTarget, resolveGeminiApiBaseUrl } from "./geminiApiUrl";
@@ -25,8 +26,9 @@ const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
 const DEFAULT_GEMINI_IMAGE_MODELS = [
+  "gemini-2.5-flash-image",
   "imagen-3.0-generate-001",
-  "gemini-2.5-flash",
+  "gemini-1.5-pro",
 ] as const;
 const RAW_GEMINI_IMAGE_MODELS = parseModelList(
   process.env.GEMINI_IMAGE_MODELS ?? process.env.GEMINI_IMAGE_MODEL,
@@ -130,12 +132,17 @@ async function callGeminiImageProvider(
     };
   }
 
-  const model = GEMINI_IMAGE_MODELS.find(isImageCapableGeminiModel) ?? GEMINI_IMAGE_MODELS[0];
+  const model = await resolveGoogleModel(
+    { apiKey },
+    GEMINI_IMAGE_MODELS.filter(isImageCapableGeminiModel)
+  );
+
   if (!model) {
     return {
       success: false,
       provider: "gemini",
-      error: "No Gemini image model is configured.",
+      error:
+        "No entitled Gemini image model is available. Provide access to an image-capable model via GEMINI_IMAGE_MODELS.",
       status: 500,
     };
   }
