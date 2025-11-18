@@ -169,6 +169,7 @@ export default function ImageBuilderPage() {
   const [moodMemory, setMoodMemory] = useState("");
   const messageCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const hasInitializedConversationRef = useRef(false);
 
   const nextMessageId = useCallback(() => {
     messageCounterRef.current += 1;
@@ -209,6 +210,15 @@ export default function ImageBuilderPage() {
       ? "Vision Seed references provided via attached images."
       : "";
   }, [files, structuredControlText, trimmedManualVisionSeedText]);
+
+  useEffect(() => {
+    if (hasInitializedConversationRef.current) {
+      return;
+    }
+
+    hasInitializedConversationRef.current = true;
+    resetConversation();
+  }, [resetConversation]);
 
   function advanceConversation(nextIndex: number, responses: SeedResponses) {
     if (nextIndex >= seedTopics.length) {
