@@ -23,7 +23,16 @@ export const GEMINI_ALLOWED_MODELS = [
   "gemini-1.5-pro",
   "gemini-1.5-flash",
   "gemini-1.5-flash-8b",
+  "imagen-3.0-generate-001",
+  "imagen-3.0-fast-generate-001",
 ] as const;
+
+export const IMAGE_CAPABLE_GEMINI_MODELS = [
+  "imagen-3.0-generate-001",
+  "imagen-3.0-fast-generate-001",
+] as const satisfies readonly GeminiAllowedModel[];
+
+const IMAGE_CAPABLE_MODEL_SET = new Set<string>(IMAGE_CAPABLE_GEMINI_MODELS);
 
 export function assertNoLatestAliases(
   requested: string[],
@@ -44,7 +53,11 @@ export function assertNoLatestAliases(
   );
 }
 
-type GeminiAllowedModel = (typeof GEMINI_ALLOWED_MODELS)[number];
+export type GeminiAllowedModel = (typeof GEMINI_ALLOWED_MODELS)[number];
+
+export function isImageCapableGeminiModel(model: string): model is GeminiAllowedModel {
+  return IMAGE_CAPABLE_MODEL_SET.has(model);
+}
 
 export function enforceAllowedGeminiModels(
   requested: string[],
@@ -81,6 +94,27 @@ export function enforceAllowedGeminiModels(
     `[Gemini] Falling back to default ${options.context} models: ${fallback.join(", ")}.`
   );
   return [...fallback];
+}
+
+export function ensureImageCapableGeminiModels(
+  models: GeminiAllowedModel[],
+  fallback: readonly GeminiAllowedModel[]
+): GeminiAllowedModel[] {
+  if (models.some(isImageCapableGeminiModel)) {
+    return models;
+  }
+
+  const fallbackImage = fallback.find(isImageCapableGeminiModel);
+  if (fallbackImage) {
+    console.warn(
+      `[Gemini] No image-capable models configured. Falling back to ${fallbackImage} for image prompts.`
+    );
+    return [fallbackImage, ...models];
+  }
+
+  throw new Error(
+    `[Gemini] Unable to determine an image-capable model for image prompts. Add one of: ${IMAGE_CAPABLE_GEMINI_MODELS.join(", ")}.`
+  );
 }
 
 export async function resolveGoogleModel(
