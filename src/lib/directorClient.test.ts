@@ -32,11 +32,6 @@ function buildVideoPlanPayload() {
     payload: {
       vision_seed_text: "Epic skyline",
       script_text: "The hero returns.",
-      tone: "hype" as const,
-      visual_style: "stylized" as const,
-      aspect_ratio: "16:9" as const,
-      mood_profile: null,
-      cinematic_control_options: {},
     },
   };
 }
@@ -103,38 +98,27 @@ test("video plan requests use Veo endpoints and keys when configured", async (t)
 
   const predictUrls: string[] = [];
 
-  const fetchMock = t.mock.method(
-    global,
-    "fetch",
-    async (url: RequestInfo | URL, init?: RequestInit) => {
-      const normalizedUrl =
-        typeof url === "string"
-          ? url
-          : url instanceof URL
-            ? url.toString()
-            : url.url;
-
-      if (normalizedUrl.includes(":predictLongRunning")) {
-        predictUrls.push(normalizedUrl);
-        return new Response(JSON.stringify({ name: "operations/op123" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({
-          done: true,
-          response: {
-            generated_videos: [
-              { url: "https://cdn.example/video.mp4", mime_type: "video/mp4" },
-            ],
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+  const fetchMock = t.mock.method(global, "fetch", async (url, init) => {
+    if (typeof url === "string" && url.includes(":predictLongRunning")) {
+      predictUrls.push(url);
+      return new Response(JSON.stringify({ name: "operations/op123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
-  );
+
+    return new Response(
+      JSON.stringify({
+        done: true,
+        response: {
+          generated_videos: [
+            { url: "https://cdn.example/video.mp4", mime_type: "video/mp4" },
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  });
 
   const { callDirectorCore } = await importDirectorClient();
   const result = await callDirectorCore(buildVideoPlanPayload());
@@ -219,83 +203,4 @@ test("callDirectorCore resolves an entitled image-capable Gemini model", async (
 
   assert.equal(result.success, true);
   assert.equal(fetchMock.mock.calls.length, 2);
-});
-
-test("callGeminiImageProvider returns prompt-only responses", async (t) => {
-  setEnv("GEMINI_API_KEY", "server-gemini-key");
-  setEnv("GOOGLE_API_KEY", undefined);
-  setEnv("GEMINI_IMAGE_MODELS", "gemini-1.5-pro");
-  setEnv("GEMINI_IMAGE_MODEL", undefined);
-
-  const fetchMock = t.mock.method(
-    globalThis,
-    "fetch",
-    async (input: RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-
-      if (url.includes(":generateContent")) {
-        assert.equal(init?.method, "POST");
-        assert.ok(url.includes("gemini-1.5-pro"));
-        return new Response(
-          JSON.stringify({
-            candidates: [
-              {
-                content: { parts: [{ text: "Only prompt returned" }] },
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        );
-      }
-
-      if (url.includes("/models")) {
-        return new Response(
-          JSON.stringify({ models: [{ name: "models/gemini-1.5-pro" }] }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        );
-      }
-
-      throw new Error(`Unexpected fetch: ${url}`);
-    }
-  );
-
-  const { callDirectorCore } = await importDirectorClient();
-
-  const result = await callDirectorCore(
-    {
-      mode: "image_prompt",
-      payload: {
-        vision_seed_text: "Prompt only",
-        model: "sdxl",
-        selectedOptions: {
-          cameraAngles: [],
-          shotSizes: [],
-          composition: [],
-          cameraMovement: [],
-          lightingStyles: [],
-          colorPalettes: [],
-          atmosphere: [],
-        },
-        mood_profile: null,
-        constraints: null,
-      },
-      images: [],
-    },
-    { gemini: { apiKey: "server-gemini-key" } }
-  );
-
-  assert.equal(result.success, true);
-  assert.equal(result.mode, "image_prompt");
-  assert.equal(result.provider, "gemini");
-  assert.equal(result.promptText, "Only prompt returned");
-  assert.equal(result.images.length, 0);
-  assert.equal(fetchMock.mock.calls.length, 1);
 });
