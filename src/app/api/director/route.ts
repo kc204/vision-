@@ -455,6 +455,7 @@ function parseVideoPlanPayload(
     visual_style,
     aspect_ratio,
     mood_profile = null,
+    planner_context,
     cinematic_control_options,
   } = value as UnknownRecord;
 
@@ -501,6 +502,8 @@ function parseVideoPlanPayload(
     return cinematicControls;
   }
 
+  const plannerContext = getNonEmptyString(planner_context);
+
   const payload: VideoPlanPayload = {
     vision_seed_text: vision_seed_text.trim(),
     script_text: script_text.trim(),
@@ -510,6 +513,10 @@ function parseVideoPlanPayload(
     mood_profile: parseNullableString(mood_profile),
     cinematic_control_options: cinematicControls.value,
   };
+
+  if (plannerContext) {
+    payload.planner_context = plannerContext;
+  }
 
   return { ok: true, value: payload };
 }
