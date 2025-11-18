@@ -27,6 +27,19 @@ import {
   type VisualOption,
 } from "@/lib/visualOptions";
 
+type SeedResponses = {
+  subjectFocus: string;
+  environment: string;
+  compositionNotes: string;
+  lightingNotes: string;
+  styleNotes: string;
+  symbolismNotes: string;
+  atmosphereNotes: string;
+  outputIntent: string;
+  constraints: string;
+  moodProfile: string;
+};
+
 const SAMPLE_IMAGE_SELECTIONS: Readonly<ImagePromptPayload["selectedOptions"]> = {
   cameraAngles: ["low_angle"],
   shotSizes: ["medium"],
@@ -145,125 +158,9 @@ const visualGlossary = (Object.keys(visualOptionLists) as Array<
   return acc;
 }, {} as ImagePromptPayload["glossary"]);
 
-type SeedResponses = {
-  subjectFocus: string;
-  environment: string;
-  compositionNotes: string;
-  lightingNotes: string;
-  styleNotes: string;
-  symbolismNotes: string;
-  atmosphereNotes: string;
-  outputIntent: string;
-  constraints: string;
-  moodProfile: string;
-};
-
-type ConversationStage =
-  | "collecting"
-  | "summary"
-  | "model_select"
-  | "generating"
-  | "complete";
-
-type ConversationMessage = {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-};
-
-type SeedTopicKey = keyof SeedResponses;
-
-const seedTopics: Array<{
-  key: SeedTopicKey;
-  label: string;
-  placeholder: string;
-  prompt: string;
-}> = [
-  {
-    key: "subjectFocus",
-    label: "Subject focus",
-    placeholder:
-      "Weathered detective gripping an encrypted data shard, eyes locked with determination.",
-    prompt:
-      "Let's start with the subject focus. Who or what should the audience immediately connect with?",
-  },
-  {
-    key: "environment",
-    label: "Environment",
-    placeholder:
-      "Rain-slicked megacity alley, neon reflections rippling through puddles.",
-    prompt:
-      "Paint the environment for me. Where is this scene unfolding and what texture surrounds the subject?",
-  },
-  {
-    key: "compositionNotes",
-    label: "Composition notes",
-    placeholder:
-      "Low three-quarter framing with lens flare cutting diagonally across the subject.",
-    prompt:
-      "How should we compose the shot? Any framing, camera height, or layout notes I should lock in?",
-  },
-  {
-    key: "lightingNotes",
-    label: "Lighting notes",
-    placeholder:
-      "Split lighting from magenta signage against teal taxi glow with misty rim light.",
-    prompt:
-      "Describe the lighting language. What colors, contrast, or mood should the light reinforce?",
-  },
-  {
-    key: "styleNotes",
-    label: "Style notes",
-    placeholder:
-      "Photoreal cinematic still rendered in Flux with subtle film grain and anamorphic bokeh.",
-    prompt:
-      "Any stylistic references or mediums I should honor? Call out rendering vibes, mediums, or motion cues.",
-  },
-  {
-    key: "symbolismNotes",
-    label: "Symbolism notes",
-    placeholder:
-      "Data shard glows like a heart, signaling fragile hope amid corporate oppression.",
-    prompt:
-      "Is there symbolism or narrative intent baked into props, colors, or blocking that I should protect?",
-  },
-  {
-    key: "atmosphereNotes",
-    label: "Atmosphere notes",
-    placeholder: "City steam, distant siren haze, rain streaks tracing down chrome surfaces.",
-    prompt:
-      "What atmospheric elements, FX, or texture layers are floating through the frame?",
-  },
-  {
-    key: "outputIntent",
-    label: "Output intent",
-    placeholder: "Streaming series key art poster for a season reveal night.",
-    prompt:
-      "How will you use this output? Poster, story moment, mood board? Let me know the intent so I can scale details.",
-  },
-  {
-    key: "constraints",
-    label: "Constraints",
-    placeholder: "Keep composition printable in 24x36 ratio and maintain SFW wardrobe details.",
-    prompt:
-      "Any constraints or redlines? Think aspect, wardrobe, ratings, or production requirements.",
-  },
-  {
-    key: "moodProfile",
-    label: "Mood profile",
-    placeholder: "Neo-noir resilience with melancholic optimism in neon palette and muted shadows.",
-    prompt:
-      "Finally, capture the mood profile. Which emotional palette should the camera, lighting, and color reinforce?",
-  },
-];
-
-const seedTopicOrder = seedTopics.map((topic) => topic.key);
-
-const messageContainerHeight = "max-h-[360px] lg:max-h-[420px]";
-
-function createSeedResponses(prefill?: Partial<SeedResponses>): SeedResponses {
-  const empty: SeedResponses = {
-    subjectFocus: "",
+function createSeedResponses(initialSubject: string): SeedResponses {
+  return {
+    subjectFocus: initialSubject,
     environment: "",
     compositionNotes: "",
     lightingNotes: "",
@@ -274,26 +171,6 @@ function createSeedResponses(prefill?: Partial<SeedResponses>): SeedResponses {
     constraints: "",
     moodProfile: "",
   };
-
-  if (!prefill) {
-    return empty;
-  }
-
-  return { ...empty, ...prefill };
-}
-
-function getQuestionPrompt(index: number): string {
-  return seedTopics[index]?.prompt ?? "Tell me more about the shot you have in mind.";
-}
-
-function buildVisionSeedText(responses: SeedResponses): string {
-  return seedTopics
-    .map(({ key, label }) => {
-      const value = responses[key]?.trim();
-      return value ? `${label}: ${value}` : null;
-    })
-    .filter((value): value is string => Boolean(value))
-    .join("\n");
 }
 
 export default function ImageBuilderPage() {
@@ -318,6 +195,7 @@ export default function ImageBuilderPage() {
   const [refinementNotes, setRefinementNotes] = useState("");
   const [confirmedRefinement, setConfirmedRefinement] = useState("");
   const [moodMemory, setMoodMemory] = useState("");
+  const [manualVisionSeedText, setManualVisionSeedText] = useState("");
   const messageCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -720,9 +598,11 @@ export default function ImageBuilderPage() {
       constraints: SAMPLE_IMAGE_SEED.constraints,
       moodProfile: SAMPLE_IMAGE_SEED.moodProfile,
     };
+    const sampleSeedText = buildVisionSeedText(sampleResponses);
 
     setMoodMemory(SAMPLE_IMAGE_SEED.moodProfile);
     setSeedResponses(sampleResponses);
+    setManualVisionSeedText(sampleSeedText);
     setSelectedOptions({
       cameraAngles: [...SAMPLE_IMAGE_SELECTIONS.cameraAngles],
       shotSizes: [...SAMPLE_IMAGE_SELECTIONS.shotSizes],
@@ -734,7 +614,7 @@ export default function ImageBuilderPage() {
     });
     setFiles([]);
     setModel(SAMPLE_IMAGE_SEED.model);
-    setSummaryText(buildVisionSeedText(sampleResponses));
+    setSummaryText(sampleSeedText);
     setRefinementNotes("");
     setConfirmedRefinement("");
     setConversationStage("summary");
@@ -766,7 +646,7 @@ export default function ImageBuilderPage() {
         role: "assistant",
         content:
           "Here's how I'm interpreting your Vision Seed:\n" +
-          buildVisionSeedText(sampleResponses) +
+          sampleSeedText +
           "\n\nNeed any targeted refinements before we choose a model?",
       });
       return transcript;
@@ -793,7 +673,10 @@ export default function ImageBuilderPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => resetConversation()}
+            onClick={() => {
+              setManualVisionSeedText("");
+              resetConversation();
+            }}
             className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/40"
           >
             Restart Vision Seed
@@ -895,7 +778,10 @@ export default function ImageBuilderPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => resetConversation(seedResponses)}
+                  onClick={() => {
+                    setManualVisionSeedText(buildVisionSeedText(seedResponses));
+                    resetConversation(seedResponses);
+                  }}
                   className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
                 >
                   Re-run interview
@@ -938,19 +824,43 @@ export default function ImageBuilderPage() {
             </p>
           ) : null}
 
-          {conversationStage === "complete" ? (
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => resetConversation()}
-                className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
-              >
-                Start another Vision Seed
-              </button>
-            </div>
-          ) : null}
-        </div>
+        {conversationStage === "complete" ? (
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setManualVisionSeedText("");
+                resetConversation();
+              }}
+              className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200"
+            >
+              Start another Vision Seed
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      <div className="space-y-2 rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-200">
+            Manual Vision Seed prose
+          </span>
+          <span className="text-xs uppercase tracking-wide text-slate-400">
+            Optional
+          </span>
+        </div>
+        <textarea
+          value={manualVisionSeedText}
+          onChange={(event) => setManualVisionSeedText(event.target.value)}
+          rows={4}
+          placeholder="Summarize mood, symbolism, or story beats you want baked into the prompt."
+          className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-canvas-accent focus:outline-none focus:ring-1 focus:ring-canvas-accent"
+        />
+        <p className="text-xs text-slate-400">
+          We'll merge this freeform memo with your cinematic controls before handing the Vision Seed to Director Core.
+        </p>
+      </div>
+    </div>
 
       <aside className="space-y-6">
         <ImageDropzone
