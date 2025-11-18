@@ -75,6 +75,59 @@ function createRequest(body: unknown) {
   });
 }
 
+async function exerciseBuilderSubmissionFlow(
+  response: Response,
+  expectedMode: DirectorRequest["mode"]
+): Promise<DirectorResponse> {
+  const responseClone = response.clone();
+  let rawBodyText: string | null = null;
+  const rawResponseJson = (await response
+    .json()
+    .catch(async () => {
+      rawBodyText = await responseClone.text().catch(() => null);
+      return null;
+    })) as DirectorResponse | { error?: string } | null;
+
+  if (!response.ok) {
+    rawBodyText ??= await responseClone.text().catch(() => null);
+    const message =
+      (rawResponseJson as { error?: string } | null)?.error ??
+      (rawBodyText
+        ? `HTTP ${response.status}: ${rawBodyText}`
+        : `HTTP ${response.status} error`);
+    throw new Error(message);
+  }
+
+  if (
+    !rawResponseJson ||
+    typeof rawResponseJson !== "object" ||
+    !("success" in rawResponseJson)
+  ) {
+    const bodySummary =
+      rawBodyText ??
+      (rawResponseJson ? JSON.stringify(rawResponseJson) : null) ??
+      "No response body returned";
+    throw new Error(
+      `Invalid response format (HTTP ${response.status}). Raw response: ${bodySummary}`
+    );
+  }
+
+  const responseJson: DirectorResponse = rawResponseJson;
+
+  if (responseJson.success !== true) {
+    throw new Error(
+      (responseJson as { error?: string }).error ??
+        "Director Core returned an unexpected payload"
+    );
+  }
+
+  if (responseJson.mode !== expectedMode) {
+    throw new Error("Director Core returned a response for a different mode");
+  }
+
+  return responseJson;
+}
+
 test("image prompts proceed when server Gemini key exists", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
   setEnv("GEMINI_API_KEY", "server-gemini-key");
