@@ -80,9 +80,10 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
+          mode: validation.value.mode,
           error: result.error,
           provider: result.provider,
-          status: result.status,
+          status,
           details: result.details ?? null,
         },
         { status }

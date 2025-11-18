@@ -94,6 +94,23 @@ test("mapDirectorCoreSuccess normalizes image prompt payloads", () => {
   assert.equal(response.media?.[0]?.caption, "Hero");
 });
 
+test("mapDirectorCoreSuccess preserves prompt-only Gemini payloads", () => {
+  const response = mapDirectorCoreSuccess({
+    success: true,
+    mode: "image_prompt",
+    provider: "gemini",
+    images: [],
+    promptText: "Describe the world",
+    metadata: { caution: "text-only" },
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(response.mode, "image_prompt");
+  assert.equal(response.text, "Describe the world");
+  assert.equal(response.fallbackText, "Describe the world");
+  assert.equal(response.media?.length, 0);
+});
+
 test("mapDirectorCoreSuccess stringifies video plans and media", () => {
   const response = mapDirectorCoreSuccess(createVideoSuccess());
 
@@ -103,6 +120,45 @@ test("mapDirectorCoreSuccess stringifies video plans and media", () => {
   assert.equal(response.media?.[0]?.url, "https://cdn.example/video.mp4");
   assert.equal(response.media?.[0]?.posterUrl, "data:image/png;base64,iVBOR");
   assert.equal(response.media?.[0]?.frames?.[0]?.url, "https://cdn.example/frame.png");
+});
+
+test("mapDirectorCoreSuccess returns plan-only video responses", () => {
+  const storyboard: VideoPlanResponse = {
+    thumbnailConcept: "Storm over the city",
+    scenes: [
+      {
+        segment_title: "Prologue",
+        scene_description: "Describe the stormy skyline.",
+        main_subject: "City",
+        camera_movement: "Dolly",
+        visual_tone: "Moody",
+        motion: "Slow",
+        mood: "Ominous",
+        narrative: "Set the scene",
+        continuity_lock: {
+          subject_identity: "Narrator",
+          lighting_and_palette: "Cool",
+          camera_grammar: "Wide",
+          environment_motif: "Rain",
+        },
+        acceptance_check: ["Show skyline"],
+      },
+    ],
+  };
+
+  const response = mapDirectorCoreSuccess({
+    success: true,
+    mode: "video_plan",
+    provider: "veo-3.1",
+    videos: [],
+    storyboard,
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(response.mode, "video_plan");
+  assert.ok(response.text?.includes("Storm over the city"));
+  assert.equal(response.media?.length, 0);
+  assert.equal(response.result, storyboard);
 });
 
 test("mapDirectorCoreSuccess attaches loop frames", () => {

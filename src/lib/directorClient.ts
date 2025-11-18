@@ -200,8 +200,10 @@ async function callGeminiImageProvider(
   }
 
   const { images, promptText, metadata } = parseGeminiImageResponse(data);
+  const hasPromptText = typeof promptText === "string" && promptText.trim().length > 0;
+  const hasMetadata = metadata !== undefined;
 
-  if (images.length === 0) {
+  if (images.length === 0 && !hasPromptText && !hasMetadata) {
     return {
       success: false,
       provider: "gemini",
@@ -342,12 +344,15 @@ async function callVeoVideoProvider(
     validatedResponse.payload
   );
 
-  if (videos.length === 0) {
+  const hasStoryboardPlan = hasStructuredPlan(storyboard);
+  const hasMetadataPlan = metadataHasStructuredPlan(metadata);
+
+  if (videos.length === 0 && !hasStoryboardPlan && !hasMetadataPlan) {
     return {
       success: false,
       provider: model,
       status: operationResult.status,
-      error: "Veo did not return any video outputs in the response.",
+      error: "Veo did not return any video outputs or storyboard plan in the response.",
       details: operationResult.payload,
     };
   }
@@ -728,6 +733,43 @@ function parseVeoVideoResponse(data: unknown): {
   }
 
   return { videos, storyboard, metadata };
+}
+
+function hasStructuredPlan(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (isRecord(value)) {
+    return Object.keys(value).length > 0;
+  }
+
+  return false;
+}
+
+function metadataHasStructuredPlan(
+  metadata: Record<string, unknown> | undefined
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  const planKeys = [
+    "storyboard",
+    "plan",
+    "plan_json",
+    "planJson",
+    "videoPlan",
+    "video_plan",
+    "response",
+    "text",
+  ];
+
+  return planKeys.some((key) => hasStructuredPlan(metadata[key]));
 }
 
 function parseNanoBananaResponse(data: unknown): LoopSequenceResult {

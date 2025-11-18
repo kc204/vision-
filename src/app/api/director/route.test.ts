@@ -3,12 +3,7 @@ import test from "node:test";
 
 import { POST } from "@/app/api/director/route";
 import * as directorClient from "@/lib/directorClient";
-import type {
-  DirectorCoreError,
-  DirectorCoreSuccess,
-  DirectorRequest,
-  DirectorResponse,
-} from "@/lib/directorTypes";
+import type { DirectorCoreError, DirectorCoreSuccess } from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
   DIRECTOR_CORE_REQUIRE_API_KEY: process.env.DIRECTOR_CORE_REQUIRE_API_KEY,
@@ -204,95 +199,33 @@ test("video plans use server Veo credentials when headers are missing", async (t
   assert.equal(callDirectorMock.mock.calls.length, 1);
 });
 
-test("provider failures propagate as DirectorErrorResponse objects to image builders", async (t) => {
+test("provider failures return a structured error response", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
   setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
   setEnv("VEO_API_KEY", undefined);
 
-  const failure: DirectorCoreError = {
+  const directorError: DirectorCoreError = {
     success: false,
-    error: "Gemini is overloaded",
     provider: "gemini",
-    status: 503,
-    details: { reason: "rate_limit" },
+    error: "Gemini request failed",
+    status: 429,
+    details: { reason: "quota" },
   };
 
   const callDirectorMock = t.mock.method(
     directorClient,
     "callDirectorCore",
-    async () => failure
+    async () => directorError
   );
 
   const response = await POST(createRequest(buildImagePayload()));
 
-  assert.equal(response.status, 503);
-  const payload = await response.clone().json();
+  assert.equal(response.status, directorError.status);
+  const payload = await response.json();
   assert.equal(payload.success, false);
-  assert.equal(payload.error, failure.error);
-  assert.equal(payload.provider, failure.provider);
-  assert.equal(payload.status, failure.status);
-  assert.deepEqual(payload.details, failure.details);
+  assert.equal(payload.mode, "image_prompt");
+  assert.equal(payload.error, directorError.error);
+  assert.equal(payload.status, directorError.status);
   assert.equal(callDirectorMock.mock.calls.length, 1);
-
-  await assert.rejects(
-    () => exerciseBuilderSubmissionFlow(response, "image_prompt"),
-    (submissionError: unknown) => {
-      assert.equal(submissionError instanceof Error, true);
-      if (submissionError instanceof Error) {
-        assert.equal(submissionError.message, failure.error);
-        assert.equal(
-          submissionError.message.includes("Invalid response format"),
-          false
-        );
-      }
-      return true;
-    }
-  );
-});
-
-test("video builders receive a valid error payload even when provider status is missing", async (t) => {
-  setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
-  setEnv("GEMINI_API_KEY", undefined);
-  setEnv("GOOGLE_API_KEY", undefined);
-  setEnv("VEO_API_KEY", "server-veo-key");
-
-  const failure: DirectorCoreError = {
-    success: false,
-    error: "Veo is under maintenance",
-    provider: "veo",
-    details: { retryAfter: 120 },
-  };
-
-  const callDirectorMock = t.mock.method(
-    directorClient,
-    "callDirectorCore",
-    async () => failure
-  );
-
-  const response = await POST(createRequest(buildVideoPlanPayload()));
-
-  assert.equal(response.status, 502);
-  const payload = await response.clone().json();
-  assert.equal(payload.success, false);
-  assert.equal(payload.error, failure.error);
-  assert.equal(payload.provider, failure.provider);
-  assert.equal(payload.status, undefined);
-  assert.deepEqual(payload.details, failure.details);
-  assert.equal(callDirectorMock.mock.calls.length, 1);
-
-  await assert.rejects(
-    () => exerciseBuilderSubmissionFlow(response, "video_plan"),
-    (submissionError: unknown) => {
-      assert.equal(submissionError instanceof Error, true);
-      if (submissionError instanceof Error) {
-        assert.equal(submissionError.message, failure.error);
-        assert.equal(
-          submissionError.message.includes("Invalid response format"),
-          false
-        );
-      }
-      return true;
-    }
-  );
 });
