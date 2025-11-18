@@ -79,8 +79,11 @@ export async function POST(request: Request) {
       const status = result.status ?? 502;
       return NextResponse.json(
         {
+          success: false,
+          mode: validation.value.mode,
           error: result.error,
           provider: result.provider,
+          status,
           details: result.details ?? null,
         },
         { status }

@@ -159,6 +159,7 @@ export type DirectorSuccessResponse<T = unknown> = {
 
 export type DirectorErrorResponse = {
   success: false;
+  mode?: DirectorMode;
   error: string;
   provider?: string;
   status?: number;
