@@ -129,141 +129,21 @@ const visualOptionLists: Record<
   atmosphere,
 };
 
-type SeedTopicKey =
-  | "subjectFocus"
-  | "environment"
-  | "compositionNotes"
-  | "lightingNotes"
-  | "styleNotes"
-  | "symbolismNotes"
-  | "atmosphereNotes"
-  | "outputIntent"
-  | "constraints"
-  | "moodProfile";
-
-type SeedResponses = Record<SeedTopicKey, string>;
-
-type SeedTopic = {
-  key: SeedTopicKey;
-  label: string;
-  question: string;
-  placeholder: string;
-};
-
-const seedTopics: SeedTopic[] = [
-  {
-    key: "subjectFocus",
-    label: "Subject focus",
-    question: "who or what is the hero moment?",
-    placeholder: "Hero subject, emotion, key action",
-  },
-  {
-    key: "environment",
-    label: "Environment & world",
-    question: "describe the setting, era, and density of the world.",
-    placeholder: "Location, time period, world-building details",
-  },
-  {
-    key: "compositionNotes",
-    label: "Cinematic composition",
-    question: "how should we frame and stage the shot?",
-    placeholder: "Framing, lens, depth cues, perspective",
-  },
-  {
-    key: "lightingNotes",
-    label: "Lighting & color mood",
-    question: "what lighting cues or palette anchor the moment?",
-    placeholder: "Light quality, temperature, contrast, palette",
-  },
-  {
-    key: "styleNotes",
-    label: "Style & medium",
-    question: "any style, medium, or render engine preferences?",
-    placeholder: "Photoreal, painterly, anime, render engine, etc.",
-  },
-  {
-    key: "symbolismNotes",
-    label: "Symbolism & narrative",
-    question: "what hidden meaning or storytelling beat matters most?",
-    placeholder: "Hidden meaning, storytelling beats, metaphors",
-  },
-  {
-    key: "atmosphereNotes",
-    label: "Atmosphere & effects",
-    question: "describe weather, particles, or implied sound design.",
-    placeholder: "Weather, particles, implied sound",
-  },
-  {
-    key: "outputIntent",
-    label: "Output intent",
-    question: "where will this still live (poster, wallpaper, key art, etc.)?",
-    placeholder: "Poster, key art, wallpaper, concept sheet, etc.",
-  },
-  {
-    key: "constraints",
-    label: "Constraints",
-    question: "any technical constraints or guardrails I must respect?",
-    placeholder: "Steps cap, printable color limits, SFW requirements, etc.",
-  },
-  {
-    key: "moodProfile",
-    label: "Mood profile",
-    question: "what recurring mood, palette, or motifs should persist across calls?",
-    placeholder: "Persisted tone, palette, motifs to carry into future calls",
-  },
-];
-
-const seedTopicOrder = seedTopics.map((topic) => topic.key);
-
-type ConversationMessage = {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-};
-
-type ConversationStage =
-  | "collecting"
-  | "summary"
-  | "model_select"
-  | "generating"
-  | "complete";
-
-function createSeedResponses(moodMemory: string): SeedResponses {
-  return {
-    subjectFocus: "",
-    environment: "",
-    compositionNotes: "",
-    lightingNotes: "",
-    styleNotes: "",
-    symbolismNotes: "",
-    atmosphereNotes: "",
-    outputIntent: "",
-    constraints: "",
-    moodProfile: moodMemory,
-  };
+function toGlossaryEntries(options: VisualOption[]) {
+  return options.map(({ id, label, tooltip, promptSnippet }) => ({
+    id,
+    label,
+    tooltip,
+    promptSnippet,
+  }));
 }
 
-function getQuestionPrompt(index: number): string {
-  const topic = seedTopics[index];
-  if (!topic) {
-    return "Share your Vision Seed…";
-  }
-  const base = topic.question;
-  return index === 0 ? `Share your Vision Seed… ${base}` : base;
-}
-
-function buildVisionSeedText(responses: SeedResponses): string {
-  return seedTopics
-    .map((topic) => {
-      const value = responses[topic.key]?.trim();
-      if (!value) {
-        return null;
-      }
-      return `${topic.label}: ${value}`;
-    })
-    .filter(Boolean)
-    .join("\n");
-}
+const visualGlossary = (Object.keys(visualOptionLists) as Array<
+  keyof typeof visualOptionLists
+>).reduce<ImagePromptPayload["glossary"]>((acc, key) => {
+  acc[key] = toGlossaryEntries(visualOptionLists[key]);
+  return acc;
+}, {} as ImagePromptPayload["glossary"]);
 
 export default function ImageBuilderPage() {
   const [seedResponses, setSeedResponses] = useState<SeedResponses>(() =>
@@ -301,76 +181,34 @@ export default function ImageBuilderPage() {
     >).flatMap(([key, ids]) => findVisualSnippets(visualOptionLists[key], ids));
   }, [selectedOptions]);
 
-  const manualVisionSeedText = useMemo(
-    () => buildVisionSeedText(seedResponses),
-    [seedResponses]
-  );
-
-  const trimmedManualVisionSeedText = manualVisionSeedText.trim();
-
-  const confirmedRefinementText = confirmedRefinement.trim();
-
-  const fallbackVisionSeedText = selectedVisualOptions
-    .map((option) => `${option.label}: ${option.promptSnippet}`)
-    .join("\n");
-
-  const combinedVisionSeedSections = [
-    trimmedManualVisionSeedText,
-    confirmedRefinementText
-      ? `Targeted refinements: ${confirmedRefinementText}`
-      : null,
-  ].filter(Boolean);
-
-  const visionSeedText = combinedVisionSeedSections.length
-    ? combinedVisionSeedSections.join("\n\n")
-    : fallbackVisionSeedText;
-
-  const conversationTurns = useMemo(() => {
-    return messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      mood: moodMemory.trim().length ? moodMemory.trim() : undefined,
-    }));
-  }, [messages, moodMemory]);
-
-  const messageContainerHeight = messages.length > 3 ? "max-h-[420px]" : "";
-
-  const resetConversation = useCallback(
-    (prefill?: SeedResponses) => {
-      messageCounterRef.current = 0;
-      const baseResponses = prefill
-        ? { ...prefill }
-        : createSeedResponses(moodMemory);
-      setSeedResponses(baseResponses);
-      setCurrentQuestionIndex(0);
-      setConversationStage("collecting");
-      const firstAnswer = prefill?.subjectFocus?.trim() ?? baseResponses.subjectFocus;
-      setPendingInput(firstAnswer ?? "");
-      setSummaryText("");
-      setRefinementNotes("");
-      setConfirmedRefinement("");
-      setMessages([
-        {
-          id: nextMessageId(),
-          role: "assistant",
-          content: getQuestionPrompt(0),
-        },
-      ]);
-      setError(null);
-    },
-    [moodMemory, nextMessageId]
-  );
-
-  useEffect(() => {
-    resetConversation();
-  }, [resetConversation]);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+  const structuredControlText = useMemo(() => {
+    if (!selectedVisualOptions.length) {
+      return "";
     }
-  }, [messages]);
+
+    return selectedVisualOptions
+      .map((option) => `${option.label}: ${option.promptSnippet}`)
+      .join("\n");
+  }, [selectedVisualOptions]);
+
+  const trimmedManualVisionSeedText = useMemo(
+    () => manualVisionSeedText.trim(),
+    [manualVisionSeedText]
+  );
+
+  const visionSeedText = useMemo(() => {
+    const mergedSections = [trimmedManualVisionSeedText, structuredControlText]
+      .map((section) => section.trim())
+      .filter((section) => section.length > 0);
+
+    if (mergedSections.length > 0) {
+      return mergedSections.join("\n\n");
+    }
+
+    return files.length > 0
+      ? "Vision Seed references provided via attached images."
+      : "";
+  }, [files, structuredControlText, trimmedManualVisionSeedText]);
 
   function advanceConversation(nextIndex: number, responses: SeedResponses) {
     if (nextIndex >= seedTopics.length) {
@@ -560,13 +398,9 @@ export default function ImageBuilderPage() {
         vision_seed_text: visionSeedText,
         model: chosenModel,
         selectedOptions,
-        mood_profile: trimmedMoodProfile,
-        constraints: seedResponses.constraints.trim().length
-          ? seedResponses.constraints.trim()
-          : null,
-        conversation_turns: conversationTurns.length
-          ? conversationTurns
-          : undefined,
+        glossary: visualGlossary,
+        mood_profile: moodProfile.trim().length ? moodProfile.trim() : null,
+        constraints: constraints.trim().length ? constraints.trim() : null,
       };
 
       const requestPayload: DirectorRequest = {

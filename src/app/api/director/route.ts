@@ -19,8 +19,6 @@ type ValidationResult<T> =
 
 type ProviderKeyBundle = {
   geminiApiKey?: string;
-  veoApiKey?: string;
-  nanoBananaApiKey?: string;
 };
 
 export async function POST(request: Request) {
@@ -44,19 +42,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const providerKeys = extractProviderKeys(request, body, validation.value.mode);
+  const providerKeys = extractProviderKeys(request, body);
   const credentials: DirectorProviderCredentials = {};
 
   if (providerKeys.geminiApiKey) {
     credentials.gemini = { apiKey: providerKeys.geminiApiKey };
-  }
-
-  if (providerKeys.veoApiKey) {
-    credentials.veo = { apiKey: providerKeys.veoApiKey };
-  }
-
-  if (providerKeys.nanoBananaApiKey) {
-    credentials.nanoBanana = { apiKey: providerKeys.nanoBananaApiKey };
   }
 
   const requireClientKey = shouldRequireClientApiKey(validation.value.mode);
@@ -102,11 +92,7 @@ export async function POST(request: Request) {
   }
 }
 
-function extractProviderKeys(
-  request: Request,
-  body: unknown,
-  mode: DirectorRequest["mode"]
-): ProviderKeyBundle {
+function extractProviderKeys(request: Request, body: unknown): ProviderKeyBundle {
   const keys: ProviderKeyBundle = {};
 
   const geminiHeaderKey = normalizeApiKey(
@@ -116,23 +102,11 @@ function extractProviderKeys(
     keys.geminiApiKey = geminiHeaderKey;
   }
 
-  const veoHeaderKey = normalizeApiKey(getHeaderValue(request, ["x-veo-api-key"]));
-  if (veoHeaderKey) {
-    keys.veoApiKey = veoHeaderKey;
-  }
-
-  const nanoHeaderKey = normalizeApiKey(
-    getHeaderValue(request, ["x-nano-banana-api-key"])
-  );
-  if (nanoHeaderKey) {
-    keys.nanoBananaApiKey = nanoHeaderKey;
-  }
-
   const headerKey = normalizeApiKey(
     getHeaderValue(request, ["x-provider-api-key"])
   );
   if (headerKey) {
-    assignKeyForMode(keys, mode, headerKey);
+    assignKey(keys, headerKey);
   }
 
   if (isRecord(body)) {
@@ -151,7 +125,7 @@ function extractProviderKeys(
     const generalBodyKey =
       normalizeApiKey(body.providerApiKey) ?? normalizeApiKey(body.apiKey);
     if (generalBodyKey) {
-      assignKeyForMode(keys, mode, generalBodyKey);
+      assignKey(keys, generalBodyKey);
     }
   }
 
@@ -175,59 +149,11 @@ function assignProviderKeysFromRecord(
       target.geminiApiKey = geminiKey;
     }
   }
-
-  if (!target.veoApiKey) {
-    const veoKey = findFirstKey(source, [
-      "veo",
-      "veoApiKey",
-      "veo_api_key",
-      "video",
-      "videoApiKey",
-      "video_api_key",
-    ]);
-    if (veoKey) {
-      target.veoApiKey = veoKey;
-    }
-  }
-
-  if (!target.nanoBananaApiKey) {
-    const nanoKey = findFirstKey(source, [
-      "nanoBanana",
-      "nano_banana",
-      "nanoBananaApiKey",
-      "nano_banana_api_key",
-      "loop",
-      "loopApiKey",
-      "loop_api_key",
-    ]);
-    if (nanoKey) {
-      target.nanoBananaApiKey = nanoKey;
-    }
-  }
 }
 
-function assignKeyForMode(
-  target: ProviderKeyBundle,
-  mode: DirectorRequest["mode"],
-  value: string
-) {
-  switch (mode) {
-    case "loop_sequence":
-      if (!target.nanoBananaApiKey) {
-        target.nanoBananaApiKey = value;
-      }
-      break;
-    case "video_plan":
-      if (!target.veoApiKey) {
-        target.veoApiKey = value;
-      }
-      break;
-    case "image_prompt":
-    default:
-      if (!target.geminiApiKey) {
-        target.geminiApiKey = value;
-      }
-      break;
+function assignKey(target: ProviderKeyBundle, value: string) {
+  if (!target.geminiApiKey) {
+    target.geminiApiKey = value;
   }
 }
 
@@ -268,41 +194,15 @@ function hasRequiredProviderKey(
   mode: DirectorRequest["mode"],
   providerKeys: ProviderKeyBundle
 ): boolean {
-  switch (mode) {
-    case "loop_sequence":
-      return Boolean(
-        providerKeys.nanoBananaApiKey ?? getServerNanoBananaApiKey()
-      );
-    case "video_plan":
-      return Boolean(providerKeys.veoApiKey ?? getServerVeoApiKey());
-    case "image_prompt":
-    default:
-      return Boolean(providerKeys.geminiApiKey ?? getServerGeminiApiKey());
-  }
+  return Boolean(providerKeys.geminiApiKey ?? getServerGeminiApiKey());
 }
 
 function hasServerCredentialForMode(mode: DirectorRequest["mode"]): boolean {
-  switch (mode) {
-    case "loop_sequence":
-      return Boolean(getServerNanoBananaApiKey());
-    case "video_plan":
-      return Boolean(getServerVeoApiKey());
-    case "image_prompt":
-    default:
-      return Boolean(getServerGeminiApiKey());
-  }
+  return Boolean(getServerGeminiApiKey());
 }
 
 function getMissingKeyMessage(mode: DirectorRequest["mode"]): string {
-  switch (mode) {
-    case "loop_sequence":
-      return "Provide a Nano Banana API key via the request or set NANO_BANANA_API_KEY.";
-    case "video_plan":
-      return "Provide a Veo API key via the request or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.";
-    case "image_prompt":
-    default:
-      return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
-  }
+  return "Provide a Gemini API key via the request or configure GEMINI_API_KEY or GOOGLE_API_KEY.";
 }
 
 function getServerGeminiApiKey(): string | undefined {
@@ -310,16 +210,6 @@ function getServerGeminiApiKey(): string | undefined {
     getEnvApiKey(process.env.GEMINI_API_KEY) ??
     getEnvApiKey(process.env.GOOGLE_API_KEY)
   );
-}
-
-function getServerVeoApiKey(): string | undefined {
-  return (
-    getEnvApiKey(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
-  );
-}
-
-function getServerNanoBananaApiKey(): string | undefined {
-  return getEnvApiKey(process.env.NANO_BANANA_API_KEY);
 }
 
 function getEnvApiKey(value: string | undefined): string | undefined {
@@ -404,6 +294,7 @@ function parseImagePromptPayload(
     vision_seed_text,
     model,
     selectedOptions,
+    glossary,
     mood_profile = null,
     constraints = null,
     conversation_turns,
@@ -422,15 +313,16 @@ function parseImagePromptPayload(
     return selections;
   }
 
-  const conversationTurns = parseConversationTurns(conversation_turns);
-  if (!conversationTurns.ok) {
-    return conversationTurns;
+  const glossaryResult = parseGlossary(glossary);
+  if (!glossaryResult.ok) {
+    return glossaryResult;
   }
 
   const payload: ImagePromptPayload = {
     vision_seed_text: vision_seed_text.trim(),
     model,
     selectedOptions: selections.value,
+    glossary: glossaryResult.value,
     mood_profile: parseNullableString(mood_profile),
     constraints: parseNullableString(constraints),
     conversation_turns: conversationTurns.value,
@@ -641,57 +533,79 @@ function parseSelections(value: unknown):
   return { ok: true, value: selections };
 }
 
-function parseConversationTurns(value: unknown):
-  | { ok: true; value: ImagePromptPayload["conversation_turns"] }
-  | { ok: false; error: string } {
-  if (value === undefined || value === null) {
-    return { ok: true, value: undefined };
+function parseGlossary(
+  value: unknown
+): ValidationResult<ImagePromptPayload["glossary"]> {
+  if (!isRecord(value)) {
+    return { ok: false, error: "glossary must be an object" };
   }
 
-  if (!Array.isArray(value)) {
-    return { ok: false, error: "conversation_turns must be an array" };
+  const keys: Array<keyof ImagePromptPayload["glossary"]> = [
+    "cameraAngles",
+    "shotSizes",
+    "composition",
+    "cameraMovement",
+    "lightingStyles",
+    "colorPalettes",
+    "atmosphere",
+  ];
+
+  const glossary = {} as ImagePromptPayload["glossary"];
+
+  for (const key of keys) {
+    const list = value[key];
+    if (!Array.isArray(list)) {
+      return { ok: false, error: `glossary.${key} must be an array` };
+    }
+
+    const entries: ImagePromptPayload["glossary"][typeof key] = [];
+    for (const entry of list) {
+      const parsed = parseGlossaryOption(entry);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      entries.push(parsed.value);
+    }
+
+    glossary[key] = entries;
   }
 
-  const turns: ConversationTurn[] = [];
+  return { ok: true, value: glossary };
+}
 
-  for (const entry of value) {
-    if (!isRecord(entry)) {
-      return {
-        ok: false,
-        error: "conversation_turns entries must be objects",
-      };
-    }
-
-    const { role, content, mood } = entry as UnknownRecord;
-
-    if (role !== "assistant" && role !== "user") {
-      return {
-        ok: false,
-        error: "conversation_turns role must be assistant or user",
-      };
-    }
-
-    if (!isNonEmptyString(content)) {
-      return {
-        ok: false,
-        error: "conversation_turns content must be a non-empty string",
-      };
-    }
-
-    const moodValue = parseNullableString(mood);
-    const turn: ConversationTurn = {
-      role,
-      content: content.trim(),
+function parseGlossaryOption(
+  value: unknown
+): ValidationResult<ImagePromptPayload["glossary"][keyof ImagePromptPayload["glossary"]][number]> {
+  if (!isRecord(value)) {
+    return {
+      ok: false,
+      error: "glossary entries must be objects with id, label, tooltip, and promptSnippet",
     };
-
-    if (moodValue !== null) {
-      turn.mood = moodValue;
-    }
-
-    turns.push(turn);
   }
 
-  return { ok: true, value: turns.length ? turns : undefined };
+  const { id, label, tooltip, promptSnippet } = value as UnknownRecord;
+
+  if (
+    !isNonEmptyString(id) ||
+    !isNonEmptyString(label) ||
+    !isNonEmptyString(tooltip) ||
+    !isNonEmptyString(promptSnippet)
+  ) {
+    return {
+      ok: false,
+      error: "glossary entries must include id, label, tooltip, and promptSnippet",
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      id: id.trim(),
+      label: label.trim(),
+      tooltip: tooltip.trim(),
+      promptSnippet: promptSnippet.trim(),
+    },
+  };
 }
 
 function parseCinematicControlSelections(value: unknown):

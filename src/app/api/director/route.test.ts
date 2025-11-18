@@ -3,13 +3,18 @@ import test from "node:test";
 
 import { POST } from "@/app/api/director/route";
 import * as directorClient from "@/lib/directorClient";
-import type { DirectorCoreError, DirectorCoreSuccess } from "@/lib/directorTypes";
+import type {
+  DirectorCoreError,
+  DirectorCoreSuccess,
+  DirectorRequest,
+  DirectorResponse,
+  ImagePromptPayload,
+} from "@/lib/directorTypes";
 
 const ORIGINAL_ENV = {
   DIRECTOR_CORE_REQUIRE_API_KEY: process.env.DIRECTOR_CORE_REQUIRE_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-  VEO_API_KEY: process.env.VEO_API_KEY,
 };
 
 function setEnv(key: keyof typeof ORIGINAL_ENV, value: string | undefined) {
@@ -41,7 +46,27 @@ function buildImagePayload() {
         colorPalettes: [],
         atmosphere: [],
       },
+      glossary: buildGlossary(),
     },
+  };
+}
+
+function buildGlossary(): ImagePromptPayload["glossary"] {
+  const emptyOption = {
+    id: "option",
+    label: "Option",
+    tooltip: "Tooltip",
+    promptSnippet: "Snippet",
+  };
+
+  return {
+    cameraAngles: [emptyOption],
+    shotSizes: [emptyOption],
+    composition: [emptyOption],
+    cameraMovement: [emptyOption],
+    lightingStyles: [emptyOption],
+    colorPalettes: [emptyOption],
+    atmosphere: [emptyOption],
   };
 }
 
@@ -132,7 +157,6 @@ test("image prompts proceed when server Gemini key exists", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
   setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
-  setEnv("VEO_API_KEY", undefined);
 
   const success: DirectorCoreSuccess = {
     success: true,
@@ -159,30 +183,23 @@ test("image prompts proceed when server Gemini key exists", async (t) => {
   assert.equal(callDirectorMock.mock.calls.length, 1);
 });
 
-test("video plans use server Veo credentials when headers are missing", async (t) => {
+test("video plans use server Gemini credentials when headers are missing", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
-  setEnv("GEMINI_API_KEY", undefined);
+  setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
-  setEnv("VEO_API_KEY", "server-veo-key");
 
   const success: DirectorCoreSuccess = {
     success: true,
     mode: "video_plan",
-    provider: "veo-3.1",
-    videos: [
-      {
-        url: "https://cdn.example/video.mp4",
-        mimeType: "video/mp4",
-        posterImage: "https://cdn.example/poster.png",
-        frames: ["https://cdn.example/frame.png"],
-        durationSeconds: 30,
-        frameRate: 24,
-      },
-    ],
+    provider: "gemini",
     storyboard: {
       thumbnailConcept: "Epic skyline",
       scenes: [],
     },
+    storyboardText: JSON.stringify({
+      thumbnailConcept: "Epic skyline",
+      scenes: [],
+    }),
   };
 
   const callDirectorMock = t.mock.method(
@@ -203,7 +220,6 @@ test("provider failures return a structured error response", async (t) => {
   setEnv("DIRECTOR_CORE_REQUIRE_API_KEY", undefined);
   setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
-  setEnv("VEO_API_KEY", undefined);
 
   const directorError: DirectorCoreError = {
     success: false,

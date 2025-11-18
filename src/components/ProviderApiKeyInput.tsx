@@ -18,7 +18,7 @@ export function ProviderApiKeyInput({
   description,
   helperText =
     "Keys stay in this browser session and are only forwarded with your next request.",
-  placeholder = "Paste your Gemini or Veo key",
+  placeholder = "Paste your Gemini key",
 }: ProviderApiKeyInputProps) {
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     onChange(event.target.value);
