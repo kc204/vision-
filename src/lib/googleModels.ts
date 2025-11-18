@@ -30,7 +30,6 @@ export const GEMINI_ALLOWED_MODELS = [
 ] as const;
 
 export const IMAGE_CAPABLE_GEMINI_MODELS = [
-  "gemini-2.5-flash-image",
   "gemini-1.5-pro",
   "gemini-1.5-flash",
   "gemini-1.0-pro-vision",

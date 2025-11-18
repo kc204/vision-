@@ -12,6 +12,7 @@
     "src/lib/imagePromptParser.ts",
     "src/lib/imagePromptParser.test.ts",
     "src/lib/directorClient.ts",
+    "src/lib/directorClient.test.ts",
     "src/lib/googleModels.ts",
     "src/lib/googleModels.test.ts",
     "src/lib/directorClient.test.ts",

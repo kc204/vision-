@@ -56,7 +56,11 @@ type VeoPromptPayload = {
   system_prompt?: string;
 };
 
-type VeoPredictRequest = { prompt: VeoPromptPayload };
+type VeoPredictRequest = {
+  instances: Array<{
+    prompt: VeoPromptPayload;
+  }>;
+};
 
 assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
   context: "image",
@@ -268,22 +272,17 @@ async function callVeoVideoProvider(
   };
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const requestPayload = buildVeoVideoRequestPayload(req.payload, req.images);
-  if (!requestPayload.ok) {
+  const promptPayload = buildVeoVideoRequestPayload(req.payload, req.images);
+  if (!promptPayload.ok) {
     return {
       success: false,
       provider: model,
       status: 400,
-      error: requestPayload.error,
+      error: promptPayload.error,
     };
   }
 
-  const payload = {
-    prompt: {
-      ...requestPayload.value.prompt,
-      system_prompt: DIRECTOR_CORE_SYSTEM_PROMPT,
-    },
-  } satisfies VeoPredictRequest;
+  const payload = buildVeoPredictRequest(promptPayload.value);
 
   let response: Response;
   try {
@@ -486,7 +485,7 @@ function buildUserParts(payload: unknown, images: string[] | undefined) {
 function buildVeoVideoRequestPayload(
   payload: DirectorRequest["payload"],
   images?: string[]
-): ValidationResult<VeoPredictRequest> {
+): ValidationResult<VeoPromptPayload> {
   if (!isRecord(payload)) {
     return { ok: false, error: "Video plan payload must be an object." };
   }
@@ -540,7 +539,20 @@ function buildVeoVideoRequestPayload(
     veoPrompt.media = media;
   }
 
-  return { ok: true, value: { prompt: veoPrompt } };
+  return { ok: true, value: veoPrompt };
+}
+
+function buildVeoPredictRequest(prompt: VeoPromptPayload): VeoPredictRequest {
+  return {
+    instances: [
+      {
+        prompt: {
+          ...prompt,
+          system_prompt: DIRECTOR_CORE_SYSTEM_PROMPT,
+        },
+      },
+    ],
+  } satisfies VeoPredictRequest;
 }
 
 function buildVeoMediaAttachments(images?: string[]): VeoMediaAttachment[] {
@@ -670,12 +682,21 @@ function validateVeoResponse(
   }
 
   const recordPayload = payload as Record<string, unknown>;
+  const predictions = Array.isArray(recordPayload.predictions)
+    ? recordPayload.predictions
+    : [];
   const hasCandidates = Array.isArray(recordPayload.candidates);
   const hasGeneratedVideos = Array.isArray(
     (recordPayload as { generated_videos?: unknown }).generated_videos
   );
+  const predictionsContainOutputs = predictions.some(
+    (entry) =>
+      isRecord(entry) &&
+      (Array.isArray(entry.candidates) ||
+        Array.isArray((entry as { generated_videos?: unknown }).generated_videos))
+  );
 
-  if (!hasCandidates && !hasGeneratedVideos) {
+  if (!hasCandidates && !hasGeneratedVideos && !predictionsContainOutputs) {
     return {
       ok: false,
       result: {
@@ -700,10 +721,23 @@ function parseVeoVideoResponse(data: unknown): {
   let storyboard: unknown;
   let metadata: Record<string, unknown> | undefined;
 
+  const sources: Record<string, unknown>[] = [];
   if (isRecord(data)) {
-    metadata = extractMetadata(data);
-    if (Array.isArray(data.candidates)) {
-      for (const candidate of data.candidates) {
+    sources.push(data);
+    if (Array.isArray(data.predictions)) {
+      for (const prediction of data.predictions) {
+        if (isRecord(prediction)) {
+          sources.push(prediction);
+        }
+      }
+    }
+  }
+
+  for (const source of sources) {
+    metadata = metadata ?? extractMetadata(source);
+
+    if (Array.isArray(source.candidates)) {
+      for (const candidate of source.candidates) {
         if (!isRecord(candidate)) {
           continue;
         }
@@ -719,20 +753,31 @@ function parseVeoVideoResponse(data: unknown): {
       }
     }
 
-    if (Array.isArray(data.generated_videos)) {
-      for (const video of data.generated_videos) {
+    if (Array.isArray((source as { generated_videos?: unknown }).generated_videos)) {
+      for (const video of (source as { generated_videos?: unknown }).generated_videos as unknown[]) {
         if (!isRecord(video)) {
           continue;
         }
         const url = typeof video.url === "string" ? video.url : undefined;
         const mimeType = typeof video.mime_type === "string" ? video.mime_type : undefined;
-        const base64 = typeof video.base64 === "string" ? video.base64 : undefined;
-        const posterImage = typeof video.poster_image === "string" ? video.poster_image : undefined;
+        const base64 = typeof (video as { base64?: unknown }).base64 === "string"
+          ? (video as { base64: string }).base64
+          : undefined;
+        const posterImage = typeof (video as { poster_image?: unknown }).poster_image === "string"
+          ? (video as { poster_image: string }).poster_image
+          : undefined;
         const durationSeconds =
-          typeof video.duration_seconds === "number" ? video.duration_seconds : undefined;
-        const frameRate = typeof video.frame_rate === "number" ? video.frame_rate : undefined;
-        const frames = Array.isArray(video.frames)
-          ? video.frames.filter((entry): entry is string => typeof entry === "string")
+          typeof (video as { duration_seconds?: unknown }).duration_seconds === "number"
+            ? (video as { duration_seconds?: number }).duration_seconds
+            : undefined;
+        const frameRate =
+          typeof (video as { frame_rate?: unknown }).frame_rate === "number"
+            ? (video as { frame_rate?: number }).frame_rate
+            : undefined;
+        const frames = Array.isArray((video as { frames?: unknown }).frames)
+          ? (video as { frames: unknown[] }).frames.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
           : undefined;
         videos.push({ url, mimeType, base64, posterImage, durationSeconds, frameRate, frames });
       }
@@ -859,6 +904,14 @@ function collectVideoParts(parts: unknown[], videos: GeneratedVideo[]): void {
 }
 
 function extractMetadata(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (isRecord((data as { metadata?: unknown }).metadata)) {
+    const nested = (data as { metadata: Record<string, unknown> }).metadata;
+    const nestedEntries = Object.entries(nested).filter(([, value]) => value !== undefined);
+    if (nestedEntries.length) {
+      return Object.fromEntries(nestedEntries);
+    }
+  }
+
   const { candidates, generated_images, generated_videos, ...rest } = data;
   const metadataEntries = Object.entries(rest).filter(([_, value]) => value !== undefined);
   return metadataEntries.length ? Object.fromEntries(metadataEntries) : undefined;
@@ -1305,3 +1358,10 @@ function assertNever(value: never): never {
     `Unhandled director response: ${JSON.stringify(value as Record<string, unknown>)}`
   );
 }
+
+export {
+  buildVeoVideoRequestPayload as _buildVeoVideoRequestPayloadForTest,
+  buildVeoPredictRequest as _buildVeoPredictRequestForTest,
+  validateVeoResponse as _validateVeoResponseForTest,
+  parseVeoVideoResponse as _parseVeoVideoResponseForTest,
+};
