@@ -10,6 +10,8 @@ const ORIGINAL_ENV = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   VEO_API_KEY: process.env.VEO_API_KEY,
+  VERTEX_VEO_API_KEY: process.env.VERTEX_VEO_API_KEY,
+  VERTEX_VEO_API_URL: process.env.VERTEX_VEO_API_URL,
 };
 
 function setEnv(key: keyof typeof ORIGINAL_ENV, value: string | undefined) {
@@ -80,6 +82,8 @@ test("image prompts proceed when server Gemini key exists", async (t) => {
   setEnv("GEMINI_API_KEY", "server-gemini-key");
   setEnv("GOOGLE_API_KEY", undefined);
   setEnv("VEO_API_KEY", undefined);
+  setEnv("VERTEX_VEO_API_KEY", undefined);
+  setEnv("VERTEX_VEO_API_URL", undefined);
 
   const success: DirectorCoreSuccess = {
     success: true,
@@ -111,6 +115,8 @@ test("video plans use server Veo credentials when headers are missing", async (t
   setEnv("GEMINI_API_KEY", undefined);
   setEnv("GOOGLE_API_KEY", undefined);
   setEnv("VEO_API_KEY", "server-veo-key");
+  setEnv("VERTEX_VEO_API_KEY", undefined);
+  setEnv("VERTEX_VEO_API_URL", "https://vertex.example/v1beta");
 
   const success: DirectorCoreSuccess = {
     success: true,
