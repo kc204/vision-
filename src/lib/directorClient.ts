@@ -28,6 +28,29 @@ const RAW_GEMINI_IMAGE_MODELS = parseModelList(
   [...DEFAULT_GEMINI_IMAGE_MODELS]
 );
 
+type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+type VeoMediaAttachment = {
+  type: "IMAGE" | "VIDEO";
+  mime_type?: string;
+  data?: string;
+  url?: string;
+};
+
+type VeoPromptPayload = {
+  prompt: string;
+  script: { input: string };
+  aspect_ratio?: string;
+  tone?: string;
+  visual_style?: string;
+  mood_profile?: string | null;
+  cinematic_control_options?: Record<string, unknown>;
+  media?: VeoMediaAttachment[];
+  system_prompt?: string;
+};
+
+type VeoPredictRequest = { prompt: VeoPromptPayload };
+
 assertNoLatestAliases(RAW_GEMINI_IMAGE_MODELS, {
   context: "image",
   envVar: "GEMINI_IMAGE_MODELS",
@@ -233,19 +256,22 @@ async function callVeoVideoProvider(
   };
   const url = `${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
-  const parts = buildVideoPlanParts(req.payload, req.images);
+  const requestPayload = buildVeoVideoRequestPayload(req.payload, req.images);
+  if (!requestPayload.ok) {
+    return {
+      success: false,
+      provider: model,
+      status: 400,
+      error: requestPayload.error,
+    };
+  }
+
   const payload = {
-    system_instruction: {
-      role: "system",
-      parts: [{ text: DIRECTOR_CORE_SYSTEM_PROMPT }],
+    prompt: {
+      ...requestPayload.value.prompt,
+      system_prompt: DIRECTOR_CORE_SYSTEM_PROMPT,
     },
-    contents: [
-      {
-        role: "user" as const,
-        parts,
-      },
-    ],
-  };
+  } satisfies VeoPredictRequest;
 
   let response: Response;
   try {
@@ -303,7 +329,18 @@ async function callVeoVideoProvider(
     return operationResult.result;
   }
 
-  const { videos, storyboard, metadata } = parseVeoVideoResponse(operationResult.payload);
+  const validatedResponse = validateVeoResponse(
+    operationResult.payload,
+    model,
+    operationResult.status
+  );
+  if (!validatedResponse.ok) {
+    return validatedResponse.result;
+  }
+
+  const { videos, storyboard, metadata } = parseVeoVideoResponse(
+    validatedResponse.payload
+  );
 
   if (videos.length === 0) {
     return {
@@ -434,59 +471,93 @@ function buildUserParts(payload: unknown, images: string[] | undefined) {
   return parts;
 }
 
-function buildVideoPlanParts(payload: DirectorRequest["payload"], images?: string[]) {
-  const promptSections: string[] = [];
-
-  if (isRecord(payload)) {
-    const {
-      vision_seed_text,
-      script_text,
-      tone,
-      visual_style,
-      aspect_ratio,
-      mood_profile,
-      cinematic_control_options,
-    } = payload as Record<string, unknown>;
-
-    promptSections.push(`Mode: video_plan`);
-    if (typeof vision_seed_text === "string") {
-      promptSections.push(`Vision Seed:\n${vision_seed_text}`);
-    }
-    if (typeof script_text === "string") {
-      promptSections.push(`Script:\n${script_text}`);
-    }
-    if (typeof tone === "string") {
-      promptSections.push(`Tone: ${tone}`);
-    }
-    if (typeof visual_style === "string") {
-      promptSections.push(`Visual Style: ${visual_style}`);
-    }
-    if (typeof aspect_ratio === "string") {
-      promptSections.push(`Aspect Ratio: ${aspect_ratio}`);
-    }
-    if (typeof mood_profile === "string" && mood_profile.trim().length > 0) {
-      promptSections.push(`Mood Profile: ${mood_profile}`);
-    }
-    if (cinematic_control_options && typeof cinematic_control_options === "object") {
-      promptSections.push(
-        `Cinematic Controls: ${JSON.stringify(cinematic_control_options, null, 2)}`
-      );
-    }
-  } else {
-    promptSections.push(`Mode: video_plan`, JSON.stringify(payload));
+function buildVeoVideoRequestPayload(
+  payload: DirectorRequest["payload"],
+  images?: string[]
+): ValidationResult<VeoPredictRequest> {
+  if (!isRecord(payload)) {
+    return { ok: false, error: "Video plan payload must be an object." };
   }
 
-  const parts: Array<
-    | { text: string }
-    | { inlineData: { mimeType: string; data: string } }
-    | { fileData: { fileUri: string; mimeType?: string } }
-  > = promptSections.map((section) => ({ text: section }));
+  const {
+    vision_seed_text,
+    script_text,
+    tone,
+    visual_style,
+    aspect_ratio,
+    mood_profile,
+    cinematic_control_options,
+  } = payload as Record<string, unknown>;
 
-  for (const part of buildImageParts(images)) {
-    parts.push(part);
+  if (!isNonEmptyString(vision_seed_text)) {
+    return { ok: false, error: "vision_seed_text is required for Veo video generation." };
   }
 
-  return parts;
+  if (!isNonEmptyString(script_text)) {
+    return { ok: false, error: "script_text is required for Veo video generation." };
+  }
+
+  const media = buildVeoMediaAttachments(images);
+
+  const veoPrompt: VeoPromptPayload = {
+    prompt: vision_seed_text.trim(),
+    script: { input: script_text.trim() },
+  };
+
+  if (isNonEmptyString(tone)) {
+    veoPrompt.tone = tone.trim();
+  }
+
+  if (isNonEmptyString(visual_style)) {
+    veoPrompt.visual_style = visual_style.trim();
+  }
+
+  if (isNonEmptyString(aspect_ratio)) {
+    veoPrompt.aspect_ratio = aspect_ratio.trim();
+  }
+
+  if (typeof mood_profile === "string") {
+    veoPrompt.mood_profile = mood_profile.trim().length ? mood_profile.trim() : null;
+  }
+
+  if (isRecord(cinematic_control_options)) {
+    veoPrompt.cinematic_control_options = cinematic_control_options as Record<string, unknown>;
+  }
+
+  if (media.length) {
+    veoPrompt.media = media;
+  }
+
+  return { ok: true, value: { prompt: veoPrompt } };
+}
+
+function buildVeoMediaAttachments(images?: string[]): VeoMediaAttachment[] {
+  const media: VeoMediaAttachment[] = [];
+
+  if (!images) {
+    return media;
+  }
+
+  for (const image of images) {
+    if (typeof image !== "string" || image.trim().length === 0) {
+      continue;
+    }
+
+    const inlineData = parseDataUrl(image);
+    if (inlineData) {
+      media.push({ type: "IMAGE", data: inlineData.data, mime_type: inlineData.mimeType });
+      continue;
+    }
+
+    if (isLikelyUrl(image)) {
+      media.push({ type: "IMAGE", url: image });
+      continue;
+    }
+
+    media.push({ type: "IMAGE", data: image, mime_type: "image/png" });
+  }
+
+  return media;
 }
 
 function buildImageParts(images: string[] | undefined) {
@@ -564,6 +635,48 @@ function parseGeminiImageResponse(data: unknown): {
     promptText: textChunks.length ? textChunks.join("\n").trim() : undefined,
     metadata,
   };
+}
+
+function validateVeoResponse(
+  payload: unknown,
+  provider: string,
+  status?: number
+):
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; result: DirectorCoreResult } {
+  if (!isRecord(payload)) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        provider,
+        status,
+        error: "Veo returned an unexpected response payload.",
+        details: payload,
+      },
+    };
+  }
+
+  const recordPayload = payload as Record<string, unknown>;
+  const hasCandidates = Array.isArray(recordPayload.candidates);
+  const hasGeneratedVideos = Array.isArray(
+    (recordPayload as { generated_videos?: unknown }).generated_videos
+  );
+
+  if (!hasCandidates && !hasGeneratedVideos) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        provider,
+        status,
+        error: "Veo response is missing generated_videos or candidates data.",
+        details: payload,
+      },
+    };
+  }
+
+  return { ok: true, payload: recordPayload };
 }
 
 function parseVeoVideoResponse(data: unknown): {
@@ -781,6 +894,10 @@ function getNonEmptyString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function logGeminiImageClientConfiguration(model: string) {
