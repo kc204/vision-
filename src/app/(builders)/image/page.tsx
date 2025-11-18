@@ -145,9 +145,160 @@ const visualGlossary = (Object.keys(visualOptionLists) as Array<
   return acc;
 }, {} as ImagePromptPayload["glossary"]);
 
+type SeedResponses = {
+  subjectFocus: string;
+  environment: string;
+  compositionNotes: string;
+  lightingNotes: string;
+  styleNotes: string;
+  symbolismNotes: string;
+  atmosphereNotes: string;
+  outputIntent: string;
+  constraints: string;
+  moodProfile: string;
+};
+
+type ConversationStage =
+  | "collecting"
+  | "summary"
+  | "model_select"
+  | "generating"
+  | "complete";
+
+type ConversationMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+};
+
+type SeedTopicKey = keyof SeedResponses;
+
+const seedTopics: Array<{
+  key: SeedTopicKey;
+  label: string;
+  placeholder: string;
+  prompt: string;
+}> = [
+  {
+    key: "subjectFocus",
+    label: "Subject focus",
+    placeholder:
+      "Weathered detective gripping an encrypted data shard, eyes locked with determination.",
+    prompt:
+      "Let's start with the subject focus. Who or what should the audience immediately connect with?",
+  },
+  {
+    key: "environment",
+    label: "Environment",
+    placeholder:
+      "Rain-slicked megacity alley, neon reflections rippling through puddles.",
+    prompt:
+      "Paint the environment for me. Where is this scene unfolding and what texture surrounds the subject?",
+  },
+  {
+    key: "compositionNotes",
+    label: "Composition notes",
+    placeholder:
+      "Low three-quarter framing with lens flare cutting diagonally across the subject.",
+    prompt:
+      "How should we compose the shot? Any framing, camera height, or layout notes I should lock in?",
+  },
+  {
+    key: "lightingNotes",
+    label: "Lighting notes",
+    placeholder:
+      "Split lighting from magenta signage against teal taxi glow with misty rim light.",
+    prompt:
+      "Describe the lighting language. What colors, contrast, or mood should the light reinforce?",
+  },
+  {
+    key: "styleNotes",
+    label: "Style notes",
+    placeholder:
+      "Photoreal cinematic still rendered in Flux with subtle film grain and anamorphic bokeh.",
+    prompt:
+      "Any stylistic references or mediums I should honor? Call out rendering vibes, mediums, or motion cues.",
+  },
+  {
+    key: "symbolismNotes",
+    label: "Symbolism notes",
+    placeholder:
+      "Data shard glows like a heart, signaling fragile hope amid corporate oppression.",
+    prompt:
+      "Is there symbolism or narrative intent baked into props, colors, or blocking that I should protect?",
+  },
+  {
+    key: "atmosphereNotes",
+    label: "Atmosphere notes",
+    placeholder: "City steam, distant siren haze, rain streaks tracing down chrome surfaces.",
+    prompt:
+      "What atmospheric elements, FX, or texture layers are floating through the frame?",
+  },
+  {
+    key: "outputIntent",
+    label: "Output intent",
+    placeholder: "Streaming series key art poster for a season reveal night.",
+    prompt:
+      "How will you use this output? Poster, story moment, mood board? Let me know the intent so I can scale details.",
+  },
+  {
+    key: "constraints",
+    label: "Constraints",
+    placeholder: "Keep composition printable in 24x36 ratio and maintain SFW wardrobe details.",
+    prompt:
+      "Any constraints or redlines? Think aspect, wardrobe, ratings, or production requirements.",
+  },
+  {
+    key: "moodProfile",
+    label: "Mood profile",
+    placeholder: "Neo-noir resilience with melancholic optimism in neon palette and muted shadows.",
+    prompt:
+      "Finally, capture the mood profile. Which emotional palette should the camera, lighting, and color reinforce?",
+  },
+];
+
+const seedTopicOrder = seedTopics.map((topic) => topic.key);
+
+const messageContainerHeight = "max-h-[360px] lg:max-h-[420px]";
+
+function createSeedResponses(prefill?: Partial<SeedResponses>): SeedResponses {
+  const empty: SeedResponses = {
+    subjectFocus: "",
+    environment: "",
+    compositionNotes: "",
+    lightingNotes: "",
+    styleNotes: "",
+    symbolismNotes: "",
+    atmosphereNotes: "",
+    outputIntent: "",
+    constraints: "",
+    moodProfile: "",
+  };
+
+  if (!prefill) {
+    return empty;
+  }
+
+  return { ...empty, ...prefill };
+}
+
+function getQuestionPrompt(index: number): string {
+  return seedTopics[index]?.prompt ?? "Tell me more about the shot you have in mind.";
+}
+
+function buildVisionSeedText(responses: SeedResponses): string {
+  return seedTopics
+    .map(({ key, label }) => {
+      const value = responses[key]?.trim();
+      return value ? `${label}: ${value}` : null;
+    })
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
 export default function ImageBuilderPage() {
   const [seedResponses, setSeedResponses] = useState<SeedResponses>(() =>
-    createSeedResponses("")
+    createSeedResponses()
   );
   const [selectedOptions, setSelectedOptions] = useState<
     ImagePromptPayload["selectedOptions"]
@@ -170,6 +321,14 @@ export default function ImageBuilderPage() {
   const messageCounterRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+  }, [messages]);
+
   const nextMessageId = useCallback(() => {
     messageCounterRef.current += 1;
     return `msg-${messageCounterRef.current}`;
@@ -190,6 +349,14 @@ export default function ImageBuilderPage() {
       .map((option) => `${option.label}: ${option.promptSnippet}`)
       .join("\n");
   }, [selectedVisualOptions]);
+
+  const manualVisionSeedText = useMemo(() => {
+    const segments = [summaryText, confirmedRefinement]
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
+
+    return segments.join("\n\n");
+  }, [confirmedRefinement, summaryText]);
 
   const trimmedManualVisionSeedText = useMemo(
     () => manualVisionSeedText.trim(),
@@ -508,6 +675,38 @@ export default function ImageBuilderPage() {
     }
   }
 
+  function resetConversation(prefill?: SeedResponses) {
+    const baseResponses = prefill ?? createSeedResponses();
+    const firstTopicKey = seedTopics[0]?.key;
+    setSeedResponses(baseResponses);
+    setSelectedOptions(createEmptySelectedOptions());
+    setFiles([]);
+    setModel("sdxl");
+    setSummaryText("");
+    setRefinementNotes("");
+    setConfirmedRefinement("");
+    setResult(null);
+    setError(null);
+    setConversationStage("collecting");
+    setCurrentQuestionIndex(0);
+    setIsSubmitting(false);
+    const initialPendingInput = firstTopicKey
+      ? baseResponses[firstTopicKey].trim()
+      : "";
+    setPendingInput(initialPendingInput);
+    setMoodMemory(baseResponses.moodProfile);
+    messageCounterRef.current = 0;
+
+    const firstPrompt = getQuestionPrompt(0);
+    setMessages(
+      firstPrompt
+        ? [
+            { id: nextMessageId(), role: "assistant", content: firstPrompt },
+          ]
+        : []
+    );
+  }
+
   function handleLoadSampleSeed() {
     const sampleResponses: SeedResponses = {
       subjectFocus: SAMPLE_IMAGE_SEED.subjectFocus,
@@ -553,7 +752,7 @@ export default function ImageBuilderPage() {
           role: "assistant",
           content: prompt,
         });
-        const value = sampleResponses[key as SeedTopicKey];
+        const value = sampleResponses[key];
         if (value) {
           transcript.push({
             id: nextMessageId(),
