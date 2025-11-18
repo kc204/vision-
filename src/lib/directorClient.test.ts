@@ -6,6 +6,9 @@ const ORIGINAL_ENV = {
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_IMAGE_MODELS: process.env.GEMINI_IMAGE_MODELS,
   GEMINI_IMAGE_MODEL: process.env.GEMINI_IMAGE_MODEL,
+  VEO_API_URL: process.env.VEO_API_URL,
+  VEO_VERTEX_API_URL: process.env.VEO_VERTEX_API_URL,
+  GEMINI_API_URL: process.env.GEMINI_API_URL,
 };
 
 function setEnv(key: keyof typeof ORIGINAL_ENV, value: string | undefined) {
@@ -96,4 +99,61 @@ test("callDirectorCore resolves an entitled image-capable Gemini model", async (
 
   assert.equal(result.success, true);
   assert.equal(fetchMock.mock.calls.length, 2);
+});
+
+test("validateVeoModel rejects Gemini content endpoints", async () => {
+  const { _validateVeoModelForTest } = await import("./directorClient");
+
+  const error = _validateVeoModelForTest(
+    "veo-3.1-generate-preview",
+    "https://generativelanguage.googleapis.com/v1beta"
+  );
+
+  assert.ok(error?.includes("Gemini content API"));
+});
+
+test("validateVeoModel accepts Vertex AI video endpoints", async () => {
+  const { _validateVeoModelForTest } = await import("./directorClient");
+
+  const error = _validateVeoModelForTest(
+    "veo-3.1-generate-preview",
+    "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google"
+  );
+
+  assert.equal(error, null);
+});
+
+test("veo requests fail fast when configured with the Gemini base URL", async (t) => {
+  setEnv("GEMINI_API_KEY", undefined);
+  setEnv("GOOGLE_API_KEY", undefined);
+  setEnv("VEO_API_URL", "https://generativelanguage.googleapis.com/v1beta");
+  setEnv("VEO_VERTEX_API_URL", undefined);
+
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("Veo requests should not be sent to Gemini");
+  });
+
+  const modulePath = require.resolve("./directorClient");
+  delete require.cache[modulePath];
+  const directorClient = await import("./directorClient");
+
+  const result = await directorClient.callDirectorCore(
+    {
+      mode: "video_plan",
+      payload: {
+        vision_seed_text: "Hero landing pose",
+        script_text: "Scene 1: action",
+        tone: "hype",
+        visual_style: "realistic",
+        aspect_ratio: "16:9",
+        mood_profile: null,
+      },
+      images: [],
+    },
+    { veo: { apiKey: "veo-key" } }
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(result.error?.includes("Veo base URL"));
+  assert.equal(fetchMock.mock.calls.length, 0);
 });

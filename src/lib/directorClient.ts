@@ -21,7 +21,12 @@ import type {
 } from "./directorTypes";
 
 const GEMINI_API_URL = resolveGeminiApiBaseUrl(process.env.GEMINI_API_URL);
-const VEO_API_URL = resolveGeminiApiBaseUrl(process.env.VEO_API_URL ?? GEMINI_API_URL);
+const VEO_API_URL = resolveVeoApiBaseUrl(
+  process.env.VEO_VERTEX_API_URL ??
+    process.env.VEO_API_URL ??
+    process.env.GEMINI_API_URL ??
+    GEMINI_API_URL
+);
 const NANO_BANANA_API_URL =
   process.env.NANO_BANANA_API_URL ?? "https://api.nanobanana.com/v1";
 
@@ -248,13 +253,13 @@ async function callVeoVideoProvider(
       success: false,
       provider: "veo",
       error:
-        "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+        "Missing credentials for Veo video planning. Provide an API key or configure VEO_API_KEY, VEO_VERTEX_API_KEY, or GOOGLE_API_KEY.",
       status: 401,
     };
   }
 
   const model = VEO_VIDEO_MODELS[0];
-  const modelValidationError = validateVeoModel(model);
+  const modelValidationError = validateVeoModel(model, VEO_API_URL);
   if (modelValidationError) {
     return {
       success: false,
@@ -948,7 +953,9 @@ function getServerGeminiApiKey(): string | undefined {
 
 function getServerVeoApiKey(): string | undefined {
   return (
-    getNonEmptyString(process.env.VEO_API_KEY) ?? getServerGeminiApiKey()
+    getNonEmptyString(process.env.VEO_API_KEY) ??
+    getNonEmptyString(process.env.VEO_VERTEX_API_KEY) ??
+    getNonEmptyString(process.env.GOOGLE_API_KEY)
   );
 }
 
@@ -959,6 +966,10 @@ function getNonEmptyString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveVeoApiBaseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -996,10 +1007,11 @@ function logVeoClientConfiguration({
     context: "director video",
     baseUrl,
     model,
+    requireBeta: false,
   });
 }
 
-function validateVeoModel(model: string | undefined): string | null {
+function validateVeoModel(model: string | undefined, baseUrl: string): string | null {
   if (!model) {
     return "No Veo model is configured.";
   }
@@ -1008,7 +1020,36 @@ function validateVeoModel(model: string | undefined): string | null {
     return `Veo model "${model}" is not valid for long-running video generation. Use a model ending in "-generate-preview" (e.g., "veo-3.1-generate-preview").`;
   }
 
+  return validateVeoBaseUrl(baseUrl);
+}
+
+function validateVeoBaseUrl(baseUrl: string): string | null {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+
+  if (!normalizedBaseUrl) {
+    return "No Veo base URL is configured. Set VEO_VERTEX_API_URL or VEO_API_URL to a Vertex AI video endpoint.";
+  }
+
+  if (isGeminiContentEndpoint(normalizedBaseUrl)) {
+    return "The configured Veo base URL points to the Gemini content API. Configure a Vertex AI video generation endpoint for Veo (for example, VEO_VERTEX_API_URL).";
+  }
+
+  if (!isVertexVideoEndpoint(normalizedBaseUrl)) {
+    return "The configured Veo base URL is not a recognized Vertex AI video generation endpoint.";
+  }
+
   return null;
+}
+
+function isGeminiContentEndpoint(baseUrl: string): boolean {
+  return /generativelanguage\.googleapis\.com/i.test(baseUrl);
+}
+
+function isVertexVideoEndpoint(baseUrl: string): boolean {
+  return (
+    /(?:[\w-]+\.)?aiplatform\.googleapis\.com/i.test(baseUrl) &&
+    /\/publishers\/google(?:\/)?$/i.test(baseUrl)
+  );
 }
 
 function extractOperationName(payload: unknown): string | null {
@@ -1364,4 +1405,6 @@ export {
   buildVeoPredictRequest as _buildVeoPredictRequestForTest,
   validateVeoResponse as _validateVeoResponseForTest,
   parseVeoVideoResponse as _parseVeoVideoResponseForTest,
+  validateVeoModel as _validateVeoModelForTest,
+  validateVeoBaseUrl as _validateVeoBaseUrlForTest,
 };
