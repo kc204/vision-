@@ -290,6 +290,11 @@ async function callGeminiVideoPlanProvider(
     };
   }
 
+async function callGeminiLoopSequenceProvider(
+  req: Extract<DirectorRequest, { mode: "loop_sequence" }>,
+  credentials?: DirectorProviderCredentials
+): Promise<DirectorCoreResult> {
+  const response = await callGeminiTextModel(req, credentials);
   if (!response.ok) {
     return {
       success: false,
@@ -745,6 +750,28 @@ function extractMetadata(data: Record<string, unknown>): Record<string, unknown>
   const { candidates, generated_images, generated_videos, ...rest } = data;
   const metadataEntries = Object.entries(rest).filter(([_, value]) => value !== undefined);
   return metadataEntries.length ? Object.fromEntries(metadataEntries) : undefined;
+}
+
+function appendRawTextMetadata(
+  metadata: Record<string, unknown> | undefined,
+  rawText: string
+): Record<string, unknown> | undefined {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return metadata;
+  }
+
+  const base = metadata ? { ...metadata } : {};
+  if (typeof base.rawText === "string" && base.rawText.trim().length) {
+    if (base.rawText.includes(trimmed)) {
+      return base;
+    }
+    base.rawText = `${base.rawText}\n${trimmed}`;
+  } else {
+    base.rawText = trimmed;
+  }
+
+  return base;
 }
 
 function parseDataUrl(value: string): { mimeType: string; data: string } | null {

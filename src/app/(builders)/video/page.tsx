@@ -3,14 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
-import { GeneratedMediaGallery } from "@/components/GeneratedMediaGallery";
 import { ImageDropzone } from "@/components/ImageDropzone";
 import { PromptOutput } from "@/components/PromptOutput";
 import { Tooltip } from "@/components/Tooltip";
 import { ServerCredentialNotice } from "@/components/ServerCredentialNotice";
 import { ProviderApiKeyInput } from "@/components/ProviderApiKeyInput";
 import type {
-  DirectorMediaAsset,
   DirectorRequest,
   DirectorResponse,
   DirectorSuccessResponse,
@@ -103,13 +101,6 @@ const INITIAL_FORM_STATE = {
 
 type VideoPlanResult = VideoPlanResponse;
 
-type LegacyVideoPlanResponse = {
-  result?: VideoPlanResponse | string | null;
-  text?: string | null;
-  fallbackText?: string | null;
-  media?: DirectorMediaAsset[];
-};
-
 type DirectorCoreErrorResult = Extract<DirectorCoreResult, { success: false }>;
 
 type SceneCardProps = {
@@ -187,7 +178,6 @@ export default function VideoBuilderPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoPlanResult | null>(null);
-  const [mediaAssets, setMediaAssets] = useState<DirectorMediaAsset[]>([]);
   const [rawPlanText, setRawPlanText] = useState<string | null>(null);
   const [storyboardMetadata, setStoryboardMetadata] = useState<string | null>(
     null
@@ -236,7 +226,6 @@ export default function VideoBuilderPage() {
 
     setFiles([]);
     setResult(null);
-    setMediaAssets([]);
     setRawPlanText(null);
     setStoryboardMetadata(null);
     setError(null);
@@ -451,9 +440,8 @@ export default function VideoBuilderPage() {
     setIsSubmitting(true);
     setError(null);
     setResult(null);
-    setMediaAssets([]);
-    setRawPlanText(null);
-    setStoryboardMetadata(null);
+      setRawPlanText(null);
+      setStoryboardMetadata(null);
 
     try {
       const images = await encodeFiles(files);
@@ -589,7 +577,6 @@ export default function VideoBuilderPage() {
 
       setRawPlanText(rawText ?? JSON.stringify(plan, null, 2));
       setResult(plan);
-      setMediaAssets(responseJson.media ?? []);
     } catch (submissionError) {
       console.error(submissionError);
       setError(
@@ -859,10 +846,6 @@ export default function VideoBuilderPage() {
           <div className="min-h-[320px] rounded-3xl border border-dashed border-white/10 bg-slate-950/40 p-6 text-sm text-slate-400">
             Gemini-ready plans will appear here once generated.
           </div>
-        ) : null}
-
-        {mediaAssets.length ? (
-          <GeneratedMediaGallery assets={mediaAssets} />
         ) : null}
 
         {result ? (

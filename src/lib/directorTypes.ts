@@ -85,20 +85,10 @@ export type GeneratedImage = {
   altText?: string;
 };
 
-export type GeneratedVideo = {
-  url?: string;
-  mimeType?: string;
-  base64?: string;
-  posterImage?: string;
-  durationSeconds?: number;
-  frameRate?: number;
-  frames?: string[];
-};
-
 export type LoopSequenceResult = {
-  frames: GeneratedImage[];
+  cycles: LoopCycleJSON[];
   loopLength?: number | null;
-  frameRate?: number;
+  frameRate?: number | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -118,6 +108,7 @@ export type DirectorCoreSuccess =
       storyboard?: unknown;
       storyboardText?: string;
       metadata?: Record<string, unknown>;
+      text?: string;
     }
   | {
       success: true;

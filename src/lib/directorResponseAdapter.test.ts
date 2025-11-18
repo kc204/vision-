@@ -56,9 +56,25 @@ function createVideoSuccess(): DirectorCoreSuccess {
 
 function createLoopSuccess(): DirectorCoreSuccess {
   const loop: LoopSequenceResult = {
-    frames: [
-      { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==", altText: "First" },
-      { mimeType: "image/png", data: "https://cdn.example/frame.png", altText: "Second" },
+    cycles: [
+      {
+        segment_title: "Pulse",
+        scene_description: "Neon rain over rooftops",
+        main_subject: "Skater",
+        camera_movement: "Orbit",
+        visual_tone: "Electric",
+        motion: "Slow spin",
+        mood: "Hypnotic",
+        narrative: "The city breathes",
+        continuity_lock: {
+          subject_identity: "Skater silhouette",
+          lighting_and_palette: "Violet and cyan",
+          camera_grammar: "35mm",
+          environment_motif: "Billboards",
+          emotional_trajectory: "Cycle resets",
+        },
+        acceptance_check: ["Return to start pose"],
+      },
     ],
     loopLength: 4,
     frameRate: 12,
@@ -70,6 +86,8 @@ function createLoopSuccess(): DirectorCoreSuccess {
     mode: "loop_sequence",
     provider: "gemini",
     loop,
+    text: JSON.stringify(loop),
+    metadata: { rawText: JSON.stringify(loop) },
   };
 }
 
@@ -149,17 +167,14 @@ test("mapDirectorCoreSuccess returns plan-only video responses", () => {
   assert.equal(response.result, storyboard);
 });
 
-test("mapDirectorCoreSuccess attaches loop frames", () => {
+test("mapDirectorCoreSuccess returns loop plans", () => {
   const response = mapDirectorCoreSuccess(createLoopSuccess());
 
   assert.equal(response.mode, "loop_sequence");
-  assert.equal(response.media?.length, 1);
-  assert.equal(response.media?.[0]?.frames?.length, 2);
-  assert.equal(response.media?.[0]?.frameRate, 12);
-  assert.equal(response.media?.[0]?.durationSeconds, 4);
-  assert.equal(response.media?.[0]?.frames?.[1]?.url, "https://cdn.example/frame.png");
+  assert.equal(response.media?.length, 0);
+  assert.ok(response.text?.includes("Neon rain"));
   const loopResult = response.result as LoopSequenceResult | null;
   assert.ok(loopResult);
-  assert.equal(loopResult?.frames.length, 2);
+  assert.equal(loopResult?.cycles.length, 1);
   assert.equal(loopResult?.loopLength, 4);
 });
